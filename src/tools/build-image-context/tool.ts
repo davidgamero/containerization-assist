@@ -35,7 +35,6 @@ import {
   type SecurityWarning,
   type BuildKitFeatures,
   type BuildCommand,
-  buildImageSchema,
 } from './schema';
 
 /**
@@ -646,15 +645,9 @@ async function handleBuildImage(
 export const buildImageContext = handleBuildImage;
 
 import { tool } from '@/types/tool';
+import { buildImageContextToolDefinition } from './types';
 
 export default tool({
-  name: 'build-image-context',
-  description:
-    'Prepare Docker build context with security analysis and optimized build commands. Returns structured guidance for executing builds.',
-  version: '3.0.0',
-  schema: buildImageSchema,
-  metadata: {
-    knowledgeEnhanced: false,
-  },
+  ...buildImageContextToolDefinition,
   handler: handleBuildImage,
 });
