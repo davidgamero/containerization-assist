@@ -58,10 +58,10 @@ interface SimulationResult {
 async function simulatePolicy(options: SimulationOptions): Promise<SimulationResult> {
   const { policyPath, tool, input } = options;
 
-  console.log('\n🔬 Policy Simulation\n');
-  console.log(`Policy: ${policyPath}`);
-  console.log(`Tool: ${tool}`);
-  console.log(`Input: ${JSON.stringify(input, null, 2)}\n`);
+  console.info('\n🔬 Policy Simulation\n');
+  console.info(`Policy: ${policyPath}`);
+  console.info(`Tool: ${tool}`);
+  console.info(`Input: ${JSON.stringify(input, null, 2)}\n`);
 
   // Load the custom policy
   const policyResult = await loadRegoPolicy(path.resolve(policyPath), logger);
@@ -71,12 +71,11 @@ async function simulatePolicy(options: SimulationOptions): Promise<SimulationRes
   const policy = policyResult.value;
 
   // Get tool handler
-  const toolHandler = tool === 'generate-dockerfile'
-    ? generateDockerfileTool
-    : generateK8sManifestsTool;
+  const toolHandler =
+    tool === 'generate-dockerfile' ? generateDockerfileTool : generateK8sManifestsTool;
 
   // Run WITHOUT policy
-  console.log('📊 Running WITHOUT custom policy...\n');
+  console.info('📊 Running WITHOUT custom policy...\n');
   const contextWithout: ToolContext = {
     logger,
     // signal and progress are omitted (optional)
@@ -93,12 +92,15 @@ async function simulatePolicy(options: SimulationOptions): Promise<SimulationRes
   const validationWithout: unknown[] = [];
 
   // Run WITH policy
-  console.log('📊 Running WITH custom policy...\n');
+  console.info('📊 Running WITH custom policy...\n');
   const contextWith: ToolContext = {
     logger,
     // signal and progress are omitted (optional)
     policy,
-    queryConfig: async <T>(packageName: string, policyInput: Record<string, unknown>): Promise<T | null> => {
+    queryConfig: async <T>(
+      packageName: string,
+      policyInput: Record<string, unknown>,
+    ): Promise<T | null> => {
       return policy.queryConfig<T>(packageName, policyInput);
     },
   };
@@ -144,88 +146,110 @@ async function simulatePolicy(options: SimulationOptions): Promise<SimulationRes
 }
 
 function printSimulationResults(result: SimulationResult): void {
-  console.log(`\n${'='.repeat(80)}`);
-  console.log('📈 SIMULATION RESULTS');
-  console.log(`${'='.repeat(80)}\n`);
+  console.info(`\n${'='.repeat(80)}`);
+  console.info('📈 SIMULATION RESULTS');
+  console.info(`${'='.repeat(80)}\n`);
 
   const { differences, withoutPolicy, withPolicy } = result;
 
   // Summary
-  console.log('📊 Impact Summary:');
-  console.log(`  • Generation Config: ${differences.configChanged ? '✅ Modified' : '❌ No change'}`);
-  console.log(`  • Knowledge Filtered: ${differences.knowledgeFiltered} rules`);
-  console.log(`  • Templates Injected: ${differences.templatesInjected} templates`);
-  console.log(`  • Validation Rules: ${differences.validationRulesAdded} rules added`);
-  console.log(`  • Output Changed: ${differences.outputDiffers ? '✅ Yes' : '❌ No'}\n`);
+  console.info('📊 Impact Summary:');
+  console.info(
+    `  • Generation Config: ${differences.configChanged ? '✅ Modified' : '❌ No change'}`,
+  );
+  console.info(`  • Knowledge Filtered: ${differences.knowledgeFiltered} rules`);
+  console.info(`  • Templates Injected: ${differences.templatesInjected} templates`);
+  console.info(`  • Validation Rules: ${differences.validationRulesAdded} rules added`);
+  console.info(`  • Output Changed: ${differences.outputDiffers ? '✅ Yes' : '❌ No'}\n`);
 
   // Generation Config
   if (differences.configChanged) {
-    console.log('⚙️  Generation Configuration (Applied):');
-    console.log(JSON.stringify(withPolicy.generationConfig, null, 2));
-    console.log('');
+    console.info('⚙️  Generation Configuration (Applied):');
+    console.info(JSON.stringify(withPolicy.generationConfig, null, 2));
+    console.info('');
   }
 
   // Knowledge Filtering
   if (differences.knowledgeFiltered > 0) {
-    console.log(`🔍 Knowledge Filtering (${differences.knowledgeFiltered} rules):`);
+    console.info(`🔍 Knowledge Filtering (${differences.knowledgeFiltered} rules):`);
     (withPolicy.knowledgeFiltering as any[]).forEach((filter, i) => {
-      console.log(`  ${i + 1}. Action: ${filter.action}`);
-      if (filter.pattern) console.log(`     Pattern: ${filter.pattern}`);
-      if (filter.tags) console.log(`     Tags: ${filter.tags.join(', ')}`);
-      if (filter.reason) console.log(`     Reason: ${filter.reason}`);
-      console.log('');
+      console.info(`  ${i + 1}. Action: ${filter.action}`);
+      if (filter.pattern) console.info(`     Pattern: ${filter.pattern}`);
+      if (filter.tags) console.info(`     Tags: ${filter.tags.join(', ')}`);
+      if (filter.reason) console.info(`     Reason: ${filter.reason}`);
+      console.info('');
     });
   }
 
   // Template Injection
   if (differences.templatesInjected > 0) {
-    console.log(`📝 Templates Injected (${differences.templatesInjected} templates):`);
+    console.info(`📝 Templates Injected (${differences.templatesInjected} templates):`);
     (withPolicy.templates as any[]).forEach((template, i) => {
-      console.log(`  ${i + 1}. ID: ${template.id}`);
-      console.log(`     Category: ${template.category}`);
-      console.log(`     Recommendation: ${template.recommendation}`);
-      if (template.priority) console.log(`     Priority: ${template.priority}`);
-      console.log('     Code Snippet:');
-      console.log(template.code_snippet.split('\n').map((line: string) => `       ${line}`).join('\n'));
-      console.log('');
+      console.info(`  ${i + 1}. ID: ${template.id}`);
+      console.info(`     Category: ${template.category}`);
+      console.info(`     Recommendation: ${template.recommendation}`);
+      if (template.priority) console.info(`     Priority: ${template.priority}`);
+      console.info('     Code Snippet:');
+      console.info(
+        template.code_snippet
+          .split('\n')
+          .map((line: string) => `       ${line}`)
+          .join('\n'),
+      );
+      console.info('');
     });
   }
 
   // Validation Rules
   if (differences.validationRulesAdded > 0) {
-    console.log(`✅ Validation Rules (${differences.validationRulesAdded} rules):`);
+    console.info(`✅ Validation Rules (${differences.validationRulesAdded} rules):`);
     (withPolicy.validationRules as any[]).forEach((rule, i) => {
       const levelEmoji = rule.level === 'error' ? '❌' : rule.level === 'warning' ? '⚠️' : 'ℹ️';
-      console.log(`  ${i + 1}. ${levelEmoji} [${rule.level.toUpperCase()}] ${rule.message}`);
-      if (rule.suggestion) console.log(`     💡 Suggestion: ${rule.suggestion}`);
-      console.log('');
+      console.info(`  ${i + 1}. ${levelEmoji} [${rule.level.toUpperCase()}] ${rule.message}`);
+      if (rule.suggestion) console.info(`     💡 Suggestion: ${rule.suggestion}`);
+      console.info('');
     });
   }
 
   // Output Comparison
   if (differences.outputDiffers) {
-    console.log('📦 Output Comparison:\n');
-    console.log('  WITHOUT Policy:');
-    console.log(`  ${'-'.repeat(76)}`);
-    if (withoutPolicy.output && typeof withoutPolicy.output === 'object' && 'summary' in withoutPolicy.output) {
-      console.log(`  Summary: ${(withoutPolicy.output as any).summary}`);
+    console.info('📦 Output Comparison:\n');
+    console.info('  WITHOUT Policy:');
+    console.info(`  ${'-'.repeat(76)}`);
+    if (
+      withoutPolicy.output &&
+      typeof withoutPolicy.output === 'object' &&
+      'summary' in withoutPolicy.output
+    ) {
+      console.info(`  Summary: ${(withoutPolicy.output as any).summary}`);
       if ('recommendations' in withoutPolicy.output) {
         const recs = (withoutPolicy.output as any).recommendations;
-        const totalRecs = (recs.securityConsiderations?.length || 0) + (recs.bestPractices?.length || 0);
-        console.log(`  Recommendations: ${totalRecs} total`);
+        const totalRecs =
+          (recs.securityConsiderations?.length || 0) + (recs.bestPractices?.length || 0);
+        console.info(`  Recommendations: ${totalRecs} total`);
       }
     } else {
-      console.log(`  ${JSON.stringify(withoutPolicy.output, null, 2).split('\n').map(line => `  ${line}`).join('\n')}`);
+      console.info(
+        `  ${JSON.stringify(withoutPolicy.output, null, 2)
+          .split('\n')
+          .map((line) => `  ${line}`)
+          .join('\n')}`,
+      );
     }
 
-    console.log('\n  WITH Policy:');
-    console.log(`  ${'-'.repeat(76)}`);
-    if (withPolicy.output && typeof withPolicy.output === 'object' && 'summary' in withPolicy.output) {
-      console.log(`  Summary: ${(withPolicy.output as any).summary}`);
+    console.info('\n  WITH Policy:');
+    console.info(`  ${'-'.repeat(76)}`);
+    if (
+      withPolicy.output &&
+      typeof withPolicy.output === 'object' &&
+      'summary' in withPolicy.output
+    ) {
+      console.info(`  Summary: ${(withPolicy.output as any).summary}`);
       if ('recommendations' in withPolicy.output) {
         const recs = (withPolicy.output as any).recommendations;
-        const totalRecs = (recs.securityConsiderations?.length || 0) + (recs.bestPractices?.length || 0);
-        console.log(`  Recommendations: ${totalRecs} total`);
+        const totalRecs =
+          (recs.securityConsiderations?.length || 0) + (recs.bestPractices?.length || 0);
+        console.info(`  Recommendations: ${totalRecs} total`);
 
         // Show policy-driven recommendations
         const policyDriven = [
@@ -235,28 +259,33 @@ function printSimulationResults(result: SimulationResult): void {
         ].filter((r: any) => r.policyDriven);
 
         if (policyDriven.length > 0) {
-          console.log(`  Policy-Driven: ${policyDriven.length} recommendations`);
+          console.info(`  Policy-Driven: ${policyDriven.length} recommendations`);
           policyDriven.forEach((rec: any) => {
-            console.log(`    • ${rec.id}: ${rec.recommendation}`);
+            console.info(`    • ${rec.id}: ${rec.recommendation}`);
           });
         }
       }
     } else {
-      console.log(`  ${JSON.stringify(withPolicy.output, null, 2).split('\n').map(line => `  ${line}`).join('\n')}`);
+      console.info(
+        `  ${JSON.stringify(withPolicy.output, null, 2)
+          .split('\n')
+          .map((line) => `  ${line}`)
+          .join('\n')}`,
+      );
     }
-    console.log('');
+    console.info('');
   }
 
-  console.log('='.repeat(80));
-  console.log('✅ Simulation Complete\n');
+  console.info('='.repeat(80));
+  console.info('✅ Simulation Complete\n');
 }
 
 // CLI entrypoint
-async function main() {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.length === 0 || args.includes('--help')) {
-    console.log(`
+    console.info(`
 Policy Simulation Tool
 
 Simulates the impact of a custom policy by comparing tool execution with and without the policy.
