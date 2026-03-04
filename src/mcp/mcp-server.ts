@@ -51,6 +51,7 @@ import {
   formatOpsPingNarrative,
   formatOpsStatusNarrative,
 } from '@/mcp/formatters/natural-language-formatters';
+import { registerContainerizePrompt } from '@/mcp/prompts/containerize';
 
 /**
  * Constants
@@ -201,6 +202,8 @@ export function createMCPServer<TTool extends Tool>(
       ],
     }),
   );
+
+  registerContainerizePrompt(server);
 
   return {
     async start(): Promise<void> {
