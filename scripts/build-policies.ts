@@ -24,6 +24,12 @@ const ENTRYPOINTS = [
   'containerization/security/result',
   'containerization/base_images/result',
   'containerization/best_practices/result',
+  'safeguards/container_resource_limits/violations',
+  'safeguards/container_enforce_probes/violations',
+  'safeguards/container_allowed_images/violations',
+  'safeguards/container_restricted_image_pulls/warnings',
+  'safeguards/pod_enforce_antiaffinity/violations',
+  'safeguards/disallowed_bad_pdb/violations',
 ];
 
 interface BuildResult {
@@ -157,9 +163,34 @@ async function getFileSize(path: string): Promise<string> {
  */
 async function findPolicyFiles(): Promise<string[]> {
   const entries = await readdir(POLICIES_DIR, { withFileTypes: true });
-  return entries
-    .filter(entry => entry.isFile() && entry.name.endsWith('.rego') && !entry.name.endsWith('_test.rego'))
-    .map(entry => join(POLICIES_DIR, entry.name));
+  const policyFiles: string[] = [];
+
+  // Find root-level .rego files (non-test)
+  policyFiles.push(
+    ...entries
+      .filter(entry => entry.isFile() && entry.name.endsWith('.rego') && !entry.name.endsWith('_test.rego'))
+      .map(entry => join(POLICIES_DIR, entry.name))
+  );
+
+  // Find safeguard .rego files recursively
+  const safeguardsDir = join(POLICIES_DIR, 'safeguards');
+  if (existsSync(safeguardsDir)) {
+    const processDir = async (dir: string) => {
+      const dirEntries = await readdir(dir, { withFileTypes: true });
+      for (const entry of dirEntries) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          // Recursively process subdirectories
+          await processDir(fullPath);
+        } else if (entry.isFile() && entry.name.endsWith('.rego') && !entry.name.endsWith('_test.rego')) {
+          policyFiles.push(fullPath);
+        }
+      }
+    };
+    await processDir(safeguardsDir);
+  }
+
+  return policyFiles;
 }
 
 /**

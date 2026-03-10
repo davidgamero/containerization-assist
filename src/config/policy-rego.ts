@@ -39,6 +39,13 @@ const BUILT_IN_POLICY_MODULES: Record<string, string> = {
   'security-baseline.rego': `${POLICY_NAMESPACE}/security/result`,
   'base-images.rego': `${POLICY_NAMESPACE}/base_images/result`,
   'container-best-practices.rego': `${POLICY_NAMESPACE}/best_practices/result`,
+  // Safeguard rules
+  'container-resource-limits.rego': 'safeguards/container_resource_limits/violations',
+  'container-enforce-probes.rego': 'safeguards/container_enforce_probes/violations',
+  'container-allowed-images.rego': 'safeguards/container_allowed_images/violations',
+  'container-restricted-image-pulls.rego': 'safeguards/container_restricted_image_pulls/warnings',
+  'pod-enforce-antiaffinity.rego': 'safeguards/pod_enforce_antiaffinity/violations',
+  'disallowed-bad-pdb.rego': 'safeguards/disallowed_bad_pdb/violations',
 };
 
 /**
