@@ -25,6 +25,7 @@ import type { VerifyDeploymentResult } from '@/tools/verify-deploy/tool';
 import type { DockerfileFixPlan } from '@/tools/fix-dockerfile/schema';
 import type { ManifestPlan } from '@/tools/generate-k8s-manifests/schema';
 import type { PushImageResult } from '@/tools/push-image/tool';
+import type { ManifestValidationResult } from '@/tools/validate-manifests/schema';
 import type { TagImageResult } from '@/tools/tag-image/tool';
 import type { PrepareClusterResult } from '@/tools/prepare-cluster/tool';
 import type { PingResult, ServerStatusResult } from '@/tools/ops/tool';
@@ -1213,6 +1214,141 @@ export function formatOpsStatusNarrative(result: ServerStatusResult): string {
     parts.push('  ⚠️ Server experiencing issues');
     parts.push('  → Check memory and CPU usage');
     parts.push('  → Review recent error logs');
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Format manifest validation result as human-readable output
+ *
+ * @param result - Manifest validation result with violations and warnings
+ * @param chainHintsMode - Whether to include "Next Steps" section (default: 'enabled')
+ * @returns Formatted narrative with violations grouped by resource, tier breakdown, and summary
+ *
+ * @description
+ * Produces a comprehensive manifest validation report including:
+ * - Validation result status (passed/failed)
+ * - Tier 1 local validation results grouped by resource
+ * - Tier 2 cluster safeguard detection results (if performed)
+ * - Tier 3 dry-run validation results (if performed)
+ * - Summary statistics: violations, warnings, resources validated
+ * - Recommendations and next steps
+ */
+export function formatManifestValidationResult(
+  result: ManifestValidationResult,
+  chainHintsMode: ChainHintsMode = CHAINHINTSMODE.ENABLED,
+): string {
+  const parts: string[] = [];
+
+  // Header with status
+  const icon = result.passed ? '✅' : '❌';
+  const status = result.passed ? 'PASSED' : 'FAILED';
+  parts.push(`${icon} Manifest Validation ${status}\n`);
+
+  // Tier 1: Local Validation
+  parts.push('**Tier 1: Local Validation (Offline)**');
+  parts.push('---');
+
+  if (result.tier1Results && result.tier1Results.length > 0) {
+    // Format violations as table: Resource | Violations | Warnings
+    result.tier1Results.forEach((summary) => {
+      // Summary format: "Kind/name: X violation(s), Y warning(s)"
+      const match = summary.match(/^([^:]+):\s+(\d+)\s+violation\(s\),\s+(\d+)\s+warning\(s\)$/);
+      if (match) {
+        const resource = match[1]!;
+        const violations = parseInt(match[2]!, 10);
+        const warnings = parseInt(match[3]!, 10);
+
+        const resourceIcon = violations > 0 ? '❌' : '✅';
+        parts.push(`${resourceIcon} **${resource}**`);
+        if (violations > 0) {
+          parts.push(`  ${violations} violation${violations !== 1 ? 's' : ''}`);
+        }
+        if (warnings > 0) {
+          parts.push(`  ⚠️ ${warnings} warning${warnings !== 1 ? 's' : ''}`);
+        }
+      } else {
+        // Fallback if format doesn't match expected pattern
+        parts.push(`  ${summary}`);
+      }
+    });
+  } else {
+    parts.push('✅ No violations found in local validation');
+  }
+
+  // Tier 2: Cluster Safeguard Detection
+  if (result.tier2 && result.tier2.length > 0) {
+    parts.push('\n**Tier 2: Cluster Safeguard Detection**');
+    parts.push('---');
+
+    result.tier2.forEach((tier2Result) => {
+      const levelIcon = tier2Result.level === 'enforce' ? '🔒' : tier2Result.level === 'warn' ? '⚠️' : 'ℹ️';
+      parts.push(`${levelIcon} Level: ${tier2Result.level ?? 'unknown'}`);
+      parts.push(`  ${tier2Result.details ?? 'No details provided'}`);
+    });
+  }
+
+  // Tier 3: Server Dry-Run Validation
+  if (result.tier3Results && result.tier3Results.length > 0) {
+    parts.push('\n**Tier 3: Server Dry-Run Validation**');
+    parts.push('---');
+
+    result.tier3Results.forEach((summary) => {
+      // Summary format: "Kind/name: ..."
+      parts.push(`  ${summary}`);
+    });
+  }
+
+  // Summary statistics
+  parts.push('\n**Summary**');
+  parts.push('---');
+
+  if (result.summary) {
+    parts.push(`${result.summary}`);
+  } else {
+    const passStatus = result.passed ? '✅ Validation PASSED' : '❌ Validation FAILED';
+    const violationCount = result.violations ? result.violations.length : 0;
+    const warningCount = result.warnings ? result.warnings.length : 0;
+    parts.push(passStatus);
+    if (violationCount > 0) {
+      parts.push(`- ${violationCount} violation${violationCount !== 1 ? 's' : ''}`);
+    }
+    if (warningCount > 0) {
+      parts.push(`- ${warningCount} warning${warningCount !== 1 ? 's' : ''}`);
+    }
+    if (result.resourceCount) {
+      parts.push(`- ${result.resourceCount} resource${result.resourceCount !== 1 ? 's' : ''} validated`);
+    }
+  }
+
+  // Recommendations
+  if (!result.passed) {
+    parts.push('\n**Recommendations:**');
+    if (result.violations && result.violations.length > 0) {
+      parts.push('  → Review and fix the violations above before deploying to production');
+    }
+    if (result.warnings && result.warnings.length > 0) {
+      parts.push('  → Address warnings to improve deployment reliability');
+    }
+  } else {
+    parts.push('\n**Recommendations:**');
+    parts.push('  → Manifests are valid and ready for deployment');
+    parts.push('  → Consider deploying to staging environment first');
+  }
+
+  // Next steps (only if chainHintsMode is enabled)
+  if (chainHintsMode === CHAINHINTSMODE.ENABLED) {
+    parts.push('\n**Next Steps:**');
+    if (result.passed) {
+      parts.push('  → Use prepare-cluster to setup namespace and prerequisites');
+      parts.push('  → Apply manifests with kubectl apply');
+      parts.push('  → Verify deployment with verify-deploy');
+    } else {
+      parts.push('  → Fix violations in your Kubernetes manifests');
+      parts.push('  → Re-validate with validate-manifests');
+      parts.push('  → Once passing, deploy to cluster');
+    }
   }
 
   return parts.join('\n');

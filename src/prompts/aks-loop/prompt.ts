@@ -13,6 +13,7 @@ import {
   generateDockerfileStep,
   scanStep,
   sharedRules,
+  validateManifestsStepAks,
   verifyStep,
 } from '../shared/steps';
 import type { AksRemoteDevLoopArgs } from './schema';
@@ -91,6 +92,7 @@ export function buildAksRemoteDevLoopPrompt(args: AksRemoteDevLoopArgs): string 
           '3. Retry up to **2 times** if generation fails.',
         ].join('\n'),
       },
+      validateManifestsStepAks(),
       deployStep('AKS'),
       verifyStep([
         '3. Report the external IP / ingress endpoint if a LoadBalancer or Ingress is configured.',

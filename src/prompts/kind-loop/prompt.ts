@@ -13,6 +13,7 @@ import {
   generateDockerfileStep,
   scanStep,
   sharedRules,
+  validateManifestsStep,
   verifyStep,
 } from '../shared/steps';
 import type { LocalKindDevLoopArgs } from './schema';
@@ -80,6 +81,7 @@ export function buildLocalKindDevLoopPrompt(args: LocalKindDevLoopArgs): string 
           '3. Retry up to **2 times** if generation fails.',
         ].join('\n'),
       },
+      validateManifestsStep(),
       deployStep('the Kind cluster'),
       verifyStep(),
     ],

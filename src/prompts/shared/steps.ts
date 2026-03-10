@@ -49,6 +49,34 @@ export function scanStep(): Step {
   };
 }
 
+export function validateManifestsStep(): Step {
+  return {
+    heading: 'Validate Kubernetes manifests (Recommended)',
+    body: [
+      `Call **${TOOL_NAME.VALIDATE_MANIFESTS}** to check the generated manifests against Azure AKS Deployment Safeguard rules:`,
+      `1. Use the manifest file paths from the previous step.`,
+      '2. Review the validation results for violations or warnings.',
+      '3. If violations are found, fix the manifest files and re-run validation until all violations are resolved.',
+      '4. Then proceed to cluster preparation.',
+    ].join('\n'),
+  };
+}
+
+export function validateManifestsStepAks(): Step {
+  return {
+    heading: 'Validate Kubernetes manifests (Recommended)',
+    body: [
+      `Call **${TOOL_NAME.VALIDATE_MANIFESTS}** to validate the generated manifests against Azure AKS Deployment Safeguard compliance:`,
+      `1. Use the manifest file paths from the previous step.`,
+      `2. Optionally provide the cluster context (e.g., your AKS cluster name) to enable cluster safeguard detection.`,
+      `3. For definitive validation, use \`enableDryRun: true\` to test against the cluster's admission controllers via \`kubectl apply --dry-run=server\`.`,
+      '4. Review the validation results for violations or warnings.',
+      '5. If violations are found, fix the manifest files and re-run validation until all violations are resolved.',
+      '6. Then proceed to cluster preparation.',
+    ].join('\n'),
+  };
+}
+
 export function deployStep(target: string): Step {
   return {
     heading: `Deploy to ${target}`,
