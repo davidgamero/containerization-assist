@@ -8,7 +8,7 @@ package safeguards.lib
 # (CPU and memory) across different rule packages. These functions handle
 # all Kubernetes unit formats including:
 # - CPU: millicores (m), whole numbers, fractional values
-# - Memory: SI (K, M, G, T, P, E), decimal (Ki, Mi, Gi, Ti, Pi, Ei), and millibytes
+# - Memory: SI (k, M, G, T, P, E), IEC (Ki, Mi, Gi, Ti, Pi, Ei), and millibytes
 #
 # Port source: https://github.com/Azure/draft
 #
@@ -56,7 +56,7 @@ mem_multiple("G") = 1000000000000 if true
 # 10 ** 9
 mem_multiple("M") = 1000000000 if true
 
-# 10 ** 6
+# 10 ** 6 (lowercase k per Kubernetes spec)
 mem_multiple("k") = 1000000 if true
 
 # 10 ** 3 (default: no suffix means thousands)
@@ -186,43 +186,57 @@ get_regular_containers(pod_spec) = containers if {
 # Extract pod spec from various Kubernetes resource types
 # Supports: Deployment, StatefulSet, DaemonSet, Pod, Job, CronJob
 # Returns empty object if resource type not recognized
+# Separate rules with unique conditions to avoid function conflicts
 get_pod_spec(obj) = pod_spec if {
-	kind := object.get(obj, "kind", "")
-	
-	# Direct pod object
-	kind == "Pod"
+	# Direct pod object - unique condition
+	"Pod" == object.get(obj, "kind", "")
 	pod_spec := object.get(obj, "spec", {})
 }
 
 get_pod_spec(obj) = pod_spec if {
-	kind := object.get(obj, "kind", "")
-	
-	# Workload types with spec.template.spec
-	kind in ["Deployment", "StatefulSet", "DaemonSet"]
-	pod_spec := object.get(object.get(object.get(obj, "spec", {}), "template", {}), "spec", {})
-}
-
-get_pod_spec(obj) = pod_spec if {
-	kind := object.get(obj, "kind", "")
-	
-	# Job types
-	kind == "Job"
-	pod_spec := object.get(object.get(object.get(obj, "spec", {}), "template", {}), "spec", {})
-}
-
-get_pod_spec(obj) = pod_spec if {
-	kind := object.get(obj, "kind", "")
-	
-	# CronJob type - break up nested calls to avoid line length issues
-	kind == "CronJob"
+	# Deployment - unique condition
+	"Deployment" == object.get(obj, "kind", "")
 	spec := object.get(obj, "spec", {})
-	job_template := object.get(spec, "jobTemplate", {})
-	template_spec := object.get(job_template, "spec", {})
-	template := object.get(template_spec, "template", {})
+	template := object.get(spec, "template", {})
 	pod_spec := object.get(template, "spec", {})
 }
 
-# Fallback: unknown resource type
+get_pod_spec(obj) = pod_spec if {
+	# StatefulSet - unique condition
+	"StatefulSet" == object.get(obj, "kind", "")
+	spec := object.get(obj, "spec", {})
+	template := object.get(spec, "template", {})
+	pod_spec := object.get(template, "spec", {})
+}
+
+get_pod_spec(obj) = pod_spec if {
+	# DaemonSet - unique condition
+	"DaemonSet" == object.get(obj, "kind", "")
+	spec := object.get(obj, "spec", {})
+	template := object.get(spec, "template", {})
+	pod_spec := object.get(template, "spec", {})
+}
+
+get_pod_spec(obj) = pod_spec if {
+	# Job - unique condition
+	"Job" == object.get(obj, "kind", "")
+	spec := object.get(obj, "spec", {})
+	template := object.get(spec, "template", {})
+	pod_spec := object.get(template, "spec", {})
+}
+
+get_pod_spec(obj) = pod_spec if {
+	# CronJob - unique condition
+	"CronJob" == object.get(obj, "kind", "")
+	spec := object.get(obj, "spec", {})
+	job_template := object.get(spec, "jobTemplate", {})
+	job_spec := object.get(job_template, "spec", {})
+	template := object.get(job_spec, "template", {})
+	pod_spec := object.get(template, "spec", {})
+}
+
 get_pod_spec(obj) = {} if {
-	true
+	# Fallback: unknown resource type
+	kind := object.get(obj, "kind", "")
+	not kind in ["Pod", "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"]
 }
