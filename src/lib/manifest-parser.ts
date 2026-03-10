@@ -96,7 +96,7 @@ export function parseManifests(input: string): Result<K8sResource[]> {
         const jsonResource = JSON.parse(cleanedInput);
         const validation = validateManifest(jsonResource, 0);
         if (!validation.valid) {
-          return Failure<K8sResource[]>(validation.error);
+          return Failure<K8sResource[]>(validation.error ?? 'Document 0 failed validation');
         }
         return Success([jsonResource as K8sResource]);
       } catch {
@@ -117,7 +117,7 @@ export function parseManifests(input: string): Result<K8sResource[]> {
       const doc = documents[i];
       const validation = validateManifest(doc, i);
       if (!validation.valid) {
-        return Failure<K8sResource[]>(validation.error);
+        return Failure<K8sResource[]>(validation.error ?? `Document ${i} failed validation`);
       }
       resources.push(doc as K8sResource);
     }
