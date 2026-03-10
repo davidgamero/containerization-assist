@@ -9,6 +9,7 @@ import pushImageTool from './push-image/tool';
 import scanImageTool from './scan-image/tool';
 import tagImageTool from './tag-image/tool';
 import verifyDeployTool from './verify-deploy/tool';
+import validateManifestsTool from './validate-manifests/tool';
 import { TOOL_NAME, ToolName } from './shared/toolDefinition';
 
 export type { ToolName };
@@ -25,6 +26,7 @@ pushImageTool.name = TOOL_NAME.PUSH_IMAGE;
 scanImageTool.name = TOOL_NAME.SCAN_IMAGE;
 tagImageTool.name = TOOL_NAME.TAG_IMAGE;
 verifyDeployTool.name = TOOL_NAME.VERIFY_DEPLOY;
+validateManifestsTool.name = TOOL_NAME.VALIDATE_MANIFESTS;
 
 // Create a union type of all tool types for better type safety
 export type Tool = (
@@ -39,6 +41,7 @@ export type Tool = (
   | typeof scanImageTool
   | typeof tagImageTool
   | typeof verifyDeployTool
+  | typeof validateManifestsTool
 ) & { name: ToolName };
 
 // Type-safe tool array using the union type
@@ -58,6 +61,7 @@ export const ALL_TOOLS: readonly Tool[] = [
   scanImageTool,
   tagImageTool,
   verifyDeployTool,
+  validateManifestsTool,
 ] as const;
 
 export {
@@ -73,4 +77,5 @@ export {
   scanImageTool,
   tagImageTool,
   verifyDeployTool,
+  validateManifestsTool,
 };

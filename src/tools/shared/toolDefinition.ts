@@ -14,6 +14,7 @@ export const TOOL_NAME = {
   PUSH_IMAGE: 'push-image',
   SCAN_IMAGE: 'scan-image',
   TAG_IMAGE: 'tag-image',
+  VALIDATE_MANIFESTS: 'validate-manifests',
   VERIFY_DEPLOY: 'verify-deploy',
 } as const;
 
