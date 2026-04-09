@@ -41,6 +41,7 @@ import {
 } from '@/lib/policy-helpers';
 import { generateK8sManifestsToolDefinition } from './types';
 import { validatePathOrFail } from '@/lib/validation-helpers';
+import { validateHelm } from '@/infra/helm/validate';
 
 const { name } = generateK8sManifestsToolDefinition;
 
@@ -268,17 +269,17 @@ const runPattern = createKnowledgeTool<
       fieldMappings: (s) =>
         Boolean(
           s.tags?.includes('mapping') ||
-            s.tags?.includes('conversion') ||
-            s.text.toLowerCase().includes('map') ||
-            s.text.toLowerCase().includes('convert'),
+          s.tags?.includes('conversion') ||
+          s.text.toLowerCase().includes('map') ||
+          s.text.toLowerCase().includes('convert'),
         ),
       security: (s) => s.category === 'security' || Boolean(s.tags?.includes('security')),
       resourceManagement: (s) =>
         Boolean(
           s.tags?.includes('resources') ||
-            s.tags?.includes('limits') ||
-            s.tags?.includes('requests') ||
-            s.tags?.includes('optimization'),
+          s.tags?.includes('limits') ||
+          s.tags?.includes('requests') ||
+          s.tags?.includes('optimization'),
         ),
       bestPractices: () => true, // Catch remaining snippets as best practices
     }),
@@ -427,13 +428,24 @@ const runPattern = createKnowledgeTool<
         }));
 
       // Determine manifest files for repository mode
-      const manifestFiles: Array<{ path: string; purpose: string }> = [
-        { path: './k8s/deployment.yaml', purpose: 'Application deployment' },
-        { path: './k8s/service.yaml', purpose: 'Service exposure' },
-      ];
+      const isHelm = input.manifestType === 'helm';
+      const manifestFiles: Array<{ path: string; purpose: string }> = isHelm
+        ? [
+            { path: './chart/Chart.yaml', purpose: 'Chart metadata and dependencies' },
+            { path: './chart/values.yaml', purpose: 'Default configuration values' },
+            { path: './chart/templates/_helpers.tpl', purpose: 'Template helper definitions' },
+            { path: './chart/templates/deployment.yaml', purpose: 'Application deployment' },
+            { path: './chart/templates/service.yaml', purpose: 'Service exposure' },
+            { path: './chart/templates/NOTES.txt', purpose: 'Post-install usage notes' },
+            { path: './chart/.helmignore', purpose: 'Chart packaging exclusions' },
+          ]
+        : [
+            { path: './k8s/deployment.yaml', purpose: 'Application deployment' },
+            { path: './k8s/service.yaml', purpose: 'Service exposure' },
+          ];
 
-      // Add configmap if there are ports or environment variables
-      if (input.ports && input.ports.length > 0) {
+      // Add configmap if there are ports or environment variables (non-Helm only; Helm uses values.yaml)
+      if (!isHelm && input.ports && input.ports.length > 0) {
         manifestFiles.push({ path: './k8s/configmap.yaml', purpose: 'Configuration management' });
       }
 
@@ -454,9 +466,14 @@ const runPattern = createKnowledgeTool<
           }`
         : '';
 
+      const outputDir = isHelm ? './chart' : './k8s';
+      const helmInstruction = isHelm
+        ? ` Structure the chart with _helpers.tpl defining fullname/labels/selectorLabels helpers (prefixed with chart name). Use include (not template) for embedding helpers. Pipe string values through | quote. Use toYaml | nindent for object values. Define stable selectorLabels (without version) separate from full labels.`
+        : '';
+
       const nextAction: ToolNextAction = {
         action: 'create-files',
-        instruction: `Create ${input.manifestType} manifests in ./k8s directory for ${input.name}. Use security considerations from recommendations.securityConsiderations, resource management from recommendations.resourceManagement, and best practices from recommendations.bestPractices. Reference repositoryInfo for application details like language, frameworks, ports, and entry point. Use detectedDependencies (if provided in input) for dependency-aware manifest configuration.${policyInstruction}`,
+        instruction: `Create ${input.manifestType} manifests in ${outputDir} directory for ${input.name}. Use security considerations from recommendations.securityConsiderations, resource management from recommendations.resourceManagement, and best practices from recommendations.bestPractices. Reference repositoryInfo for application details like language, frameworks, ports, and entry point. Use detectedDependencies (if provided in input) for dependency-aware manifest configuration.${helmInstruction}${policyInstruction}`,
         files: manifestFiles,
       };
 
@@ -477,7 +494,7 @@ const runPattern = createKnowledgeTool<
         `Manifests: ${manifestFiles.map((f) => f.path.split('/').pop()).join(', ')}\n${
           policyConfigInfo
         }Recommendations: ${knowledgeMatches.length} total (${securityMatches.length} security, ${resourceMatches.length} resources, ${bestPracticeMatches.length} best practices)\n\n` +
-        `✅ Ready to create manifests in ./k8s directory.`;
+        `✅ Ready to create manifests in ${outputDir} directory.`;
 
       return {
         nextAction,
@@ -744,6 +761,54 @@ async function handleGenerateK8sManifests(
         'Policy warnings in manifest plan',
       );
     }
+  }
+
+  if (input.manifestType === 'helm') {
+    const chartPath = input.modulePath ? path.join(input.modulePath, 'chart') : undefined;
+
+    const helmValidateOptions: {
+      chartPath?: string;
+      planFiles: Array<{ path: string; purpose: string }>;
+      manifestType: string;
+      logger: Logger;
+    } = {
+      planFiles: plan.nextAction.files,
+      manifestType: input.manifestType,
+      logger,
+    };
+    if (chartPath) {
+      helmValidateOptions.chartPath = chartPath;
+    }
+
+    const helmValidation = await validateHelm(helmValidateOptions);
+
+    plan.helmValidation = helmValidation;
+
+    if (!helmValidation.passed) {
+      const blockingIssues = helmValidation.issues
+        .filter((i) => i.severity === 'block')
+        .map((i) => `  - ${i.ruleId}: ${i.message}`)
+        .join('\n');
+
+      plan.summary =
+        plan.summary + `\n\n⚠️ Helm validation found blocking issues:\n${blockingIssues}`;
+    }
+
+    if (!helmValidation.tooling.helm.available) {
+      plan.summary =
+        plan.summary +
+        '\n\n💡 Install Helm CLI for enhanced chart validation (lint, template rendering, dry-run).';
+    }
+
+    logger.info(
+      {
+        passed: helmValidation.passed,
+        issues: helmValidation.issues.length,
+        phasesRun: helmValidation.phasesRun,
+        helmAvailable: helmValidation.tooling.helm.available,
+      },
+      'Helm validation completed',
+    );
   }
 
   return result;

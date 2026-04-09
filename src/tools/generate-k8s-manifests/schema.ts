@@ -3,8 +3,15 @@
  */
 
 import { z } from 'zod';
-import { environment, platform, repositoryPath, workspacePath, type ToolNextAction } from '../shared/schemas';
+import {
+  environment,
+  platform,
+  repositoryPath,
+  workspacePath,
+  type ToolNextAction,
+} from '../shared/schemas';
 import type { PolicyValidationResult } from '@/lib/policy-helpers';
+import type { HelmValidationResult } from '@/infra/helm/types';
 
 export const generateK8sManifestsSchema = z
   .object({
@@ -201,4 +208,5 @@ export interface ManifestPlan {
   confidence: number;
   summary: string;
   policyValidation?: PolicyValidationResult;
+  helmValidation?: HelmValidationResult;
 }
