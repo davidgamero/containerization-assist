@@ -105,24 +105,28 @@ This auto-generates an OPA Rego policy that blocks any Dockerfile using a base i
 
 ### Custom Rego Policies
 
-Upload your own OPA Rego policies for full control. Policies are evaluated against generated Dockerfiles and Kubernetes manifests.
+Author your own OPA Rego policies directly in the **New Session → Policies → Custom Policy → Custom Rego** panel. Policies are evaluated against generated Dockerfiles and Kubernetes manifests during pipeline execution.
 
-Example policy that requires health checks:
+The editor provides Rego syntax highlighting, a **Validate** button that compiles the source through the policy sidecar, and inline error surfacing (line/column highlight) for parse failures. The **Add Policy** button is gated on successful validation.
+
+**Violations must be objects with `rule` and `message` fields** (strings are ignored by the evaluator):
 
 ```rego
-package containerization.require_healthcheck
+package custom.require_healthcheck
 
-violations contains result if {
-  contains(input.content, "FROM ")
+import rego.v1
+
+violations contains v if {
+  input.type == "dockerfile"
   not contains(input.content, "HEALTHCHECK")
-
-  result := {
+  v := {
     "rule": "require-healthcheck",
-    "severity": "block",
     "message": "All Dockerfiles must include a HEALTHCHECK instruction",
   }
 }
 ```
+
+Custom Rego requires the **policy sidecar** service. It ships with the standard `docker compose up` deployment and is reachable by the API via `CA_POLICY_SERVICE_URL`. For local `./dev.sh` development, either run docker-compose alongside your dev server or install the `opa` binary on your PATH — custom Rego policies are silently skipped at runtime otherwise.
 
 ### Built-in Policies
 

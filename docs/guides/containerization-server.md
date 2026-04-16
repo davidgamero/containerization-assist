@@ -71,7 +71,8 @@ Policies enforce security and compliance standards across all generated artifact
 - **Global Scope**: Applies to all sessions unless overridden.
 - **Session Scope**: Specific constraints for a single job.
 - **Skill Policies**: Logic-based rules implemented in TypeScript.
-- **Rego Policies**: Declarative rules using the Open Policy Agent (OPA) syntax.
+- **Built-in Policies**: Preset TypeScript evaluators (e.g. image allowlist). No OPA/sidecar required.
+- **Rego Policies**: Declarative rules using the Open Policy Agent (OPA) syntax. User-authored Rego is evaluated by the `policy` sidecar service (shipped with docker-compose, reachable via `CA_POLICY_SERVICE_URL`). For local `./dev.sh` development without docker-compose, install the `opa` binary on your PATH to enable evaluation; otherwise custom Rego policies are skipped at runtime with a warning.
 
 ### Target Types
 Policies target specific outputs:
