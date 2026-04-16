@@ -47,7 +47,8 @@ program
   .name('containerization-assist-mcp')
   .description('MCP server for AI-powered containerization workflows')
   .version(packageJson.version)
-  .argument('[command]', 'command to run (start, inspect-tools, list-policies)', 'start')
+  .argument('[command]', 'command to run (start, serve, inspect-tools, list-policies)', 'start')
+  .option('--port <port>', 'HTTP port for serve command (default: 3000)', '3000')
   .option('--log-level <level>', 'logging level: debug, info, warn, error (default: info)', 'info')
   .option('--workspace <path>', 'workspace directory path (default: current directory)', cwd())
   .option('--dev', 'enable development mode with debug logging')
@@ -67,6 +68,8 @@ program
 
 Examples:
   $ containerization-assist-mcp                           Start server with stdio transport
+  $ containerization-assist-mcp serve                     Start HTTP API server on port 3000
+  $ containerization-assist-mcp serve --port 8080         Start HTTP API on custom port
   $ containerization-assist-mcp --dev --log-level debug  Start in development mode with debug logs
   $ containerization-assist-mcp --list-tools             Show all available MCP tools
   $ containerization-assist-mcp --health-check           Check system dependencies
@@ -181,10 +184,38 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Handle the 'start' command (default behavior)
+    // Handle the 'serve' command — HTTP API server
+    if (command === 'serve') {
+      if (options.logLevel) env.LOG_LEVEL = options.logLevel;
+      if (options.workspace) env.WORKSPACE_DIR = options.workspace;
+      if (options.dev) process.env.NODE_ENV = 'development';
+
+      const { createHttpServer } = await import('@/http/server');
+
+      const app = createApp({
+        logger: getLogger(),
+        outputFormat: OUTPUTFORMAT.NATURAL_LANGUAGE,
+      });
+
+      const port = Number(process.env.PORT ?? options.port ?? 3000);
+      const host = process.env.HOST ?? '0.0.0.0';
+
+      const server = createHttpServer(app, {
+        port,
+        host,
+        corsOrigin: process.env.CORS_ORIGIN ?? '*',
+        githubClientId: process.env.GITHUB_CLIENT_ID,
+        githubClientSecret: process.env.GITHUB_CLIENT_SECRET,
+      });
+
+      installShutdownHandlers(app, getLogger(), !!process.env.MCP_QUIET);
+      await server.start();
+      return;
+    }
+
     if (command !== 'start') {
       console.error(`❌ Unknown command: ${command}`);
-      console.error('Available commands: start, inspect-tools, list-policies');
+      console.error('Available commands: start, serve, inspect-tools, list-policies');
       console.error('\nUse --help for usage information');
       exit(1);
     }

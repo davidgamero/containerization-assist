@@ -28,6 +28,9 @@
       "@/lib/*": [
         "src/lib/*"
       ],
+      "@/http/*": [
+        "src/http/*"
+      ],
       "@/mcp/*": [
         "src/mcp/*"
       ],

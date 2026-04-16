@@ -126,6 +126,7 @@
     "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.14",
     "@iarna/toml": "^2.2.5",
     "@kubernetes-models/apimachinery": "^2.2.0",
     "@kubernetes/client-node": "^1.4.0",
@@ -137,6 +138,7 @@
     "dockerfilelint": "^1.8.0",
     "dockerode": "^4.0.9",
     "glob": "^11.0.3",
+    "hono": "^4.12.14",
     "js-yaml": "^4.1.0",
     "kubernetes-models": "^4.5.1",
     "pino": "^9.14.0",
