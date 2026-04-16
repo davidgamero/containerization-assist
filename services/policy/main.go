@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -30,7 +31,14 @@ func main() {
 		os.Exit(runHealthcheck(addr))
 	}
 
-	eng := engine.New()
+	cacheSize := 256
+	if v := os.Getenv("POLICY_CACHE_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cacheSize = n
+		}
+	}
+
+	eng := engine.New(cacheSize)
 	srv := server.New(eng)
 
 	httpServer := &http.Server{

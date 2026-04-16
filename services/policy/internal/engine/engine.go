@@ -2,20 +2,34 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/open-policy-agent/opa/ast"
 	"github.com/open-policy-agent/opa/rego"
 )
 
 // Engine wraps OPA Rego evaluation for the policy sidecar.
-// Phase 1: stateless compile + eval. An LRU compile cache is a Phase 2 concern.
-type Engine struct{}
+// Holds an LRU cache of prepared (parsed + compiled + query-optimized) modules
+// so hot policies skip the ~1-5ms parse/compile path entirely on subsequent evals.
+type Engine struct {
+	cache *lru.Cache[string, rego.PreparedEvalQuery]
+}
 
-// New constructs a stateless Engine.
-func New() *Engine {
-	return &Engine{}
+// New constructs an Engine with a compile cache of the given size.
+// size <= 0 disables caching.
+func New(size int) *Engine {
+	if size <= 0 {
+		return &Engine{}
+	}
+	cache, err := lru.New[string, rego.PreparedEvalQuery](size)
+	if err != nil {
+		return &Engine{}
+	}
+	return &Engine{cache: cache}
 }
 
 // Violation / Warning shapes mirror src/http/types.ts PolicyViolation.
@@ -29,8 +43,9 @@ type Violation struct {
 type EvalResult struct {
 	Violations    []Violation `json:"violations"`
 	Warnings      []Violation `json:"warnings"`
-	Raw           interface{}   `json:"raw,omitempty"`
-	EvaluatedInMs int64         `json:"evaluatedInMs"`
+	Raw           interface{} `json:"raw,omitempty"`
+	EvaluatedInMs int64       `json:"evaluatedInMs"`
+	CacheHit      bool        `json:"cacheHit"`
 }
 
 // CompileError describes a parse/compile-time Rego failure with source location
@@ -59,24 +74,17 @@ func (e *Engine) Compile(src string) error {
 	return nil
 }
 
-// Evaluate compiles (if needed) and evaluates the Rego module against the given input.
-// The module MUST declare `violations` and/or `warnings` rules producing objects with
-// at least `rule` and `message` fields. Missing rules are treated as empty sets.
+// Evaluate prepares (or reuses cached preparation of) the Rego module and evaluates
+// it against the given input. The module MUST declare `violations` and/or `warnings`
+// rules producing objects with at least `rule` and `message` fields.
+// Missing rules are treated as empty sets.
 func (e *Engine) Evaluate(ctx context.Context, src string, input interface{}) (*EvalResult, error) {
-	pkg, err := extractPackage(src)
+	prepared, cacheHit, err := e.prepare(ctx, src)
 	if err != nil {
 		return nil, err
 	}
 
-	query := fmt.Sprintf("data.%s", pkg)
-	r := rego.New(
-		rego.Query(query),
-		rego.Module("policy.rego", src),
-		rego.Input(input),
-		rego.SetRegoVersion(ast.RegoV1),
-	)
-
-	rs, err := r.Eval(ctx)
+	rs, err := prepared.Eval(ctx, rego.EvalInput(input))
 	if err != nil {
 		return nil, toCompileError(err)
 	}
@@ -84,6 +92,7 @@ func (e *Engine) Evaluate(ctx context.Context, src string, input interface{}) (*
 	res := &EvalResult{
 		Violations: []Violation{},
 		Warnings:   []Violation{},
+		CacheHit:   cacheHit,
 	}
 	if len(rs) == 0 {
 		return res, nil
@@ -97,6 +106,42 @@ func (e *Engine) Evaluate(ctx context.Context, src string, input interface{}) (*
 	res.Violations = decodeViolations(pkgData["violations"])
 	res.Warnings = decodeViolations(pkgData["warnings"])
 	return res, nil
+}
+
+func (e *Engine) prepare(ctx context.Context, src string) (rego.PreparedEvalQuery, bool, error) {
+	key := sha256Hex(src)
+
+	if e.cache != nil {
+		if prepared, ok := e.cache.Get(key); ok {
+			return prepared, true, nil
+		}
+	}
+
+	pkg, err := extractPackage(src)
+	if err != nil {
+		return rego.PreparedEvalQuery{}, false, err
+	}
+
+	query := fmt.Sprintf("data.%s", pkg)
+	r := rego.New(
+		rego.Query(query),
+		rego.Module("policy.rego", src),
+		rego.SetRegoVersion(ast.RegoV1),
+	)
+	prepared, err := r.PrepareForEval(ctx)
+	if err != nil {
+		return rego.PreparedEvalQuery{}, false, toCompileError(err)
+	}
+
+	if e.cache != nil {
+		e.cache.Add(key, prepared)
+	}
+	return prepared, false, nil
+}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 func decodeViolations(v interface{}) []Violation {
@@ -140,7 +185,7 @@ func toCompileError(err error) *CompileError {
 	if err == nil {
 		return nil
 	}
-	// ast.Errors is a slice with detailed Location info
+	// ast.Errors is a slice with detailed Location info per error.
 	if errs, ok := err.(ast.Errors); ok && len(errs) > 0 {
 		first := errs[0]
 		ce := &CompileError{
