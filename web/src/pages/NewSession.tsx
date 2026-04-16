@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, ExampleApp, PolicyPreset, Policy } from '../api/client';
+import { api, ExampleApp, PolicyPreset, Policy, PolicyTarget } from '../api/client';
 import { FileUpload } from '../components/FileUpload';
+import { RegoEditor } from '../components/RegoEditor';
 
 const TAG_COLORS: Record<string, string> = {
   backend: 'bg-emerald-100 text-emerald-700',
@@ -36,6 +37,16 @@ function parseAllowlistInput(
   return { allowed_images, allowed_patterns };
 }
 
+const REGO_EDITOR_PLACEHOLDER = `package custom
+
+import rego.v1
+
+# Violations must be objects with at least \`rule\` and \`message\`:
+# violations contains v if {
+#   input.baseImage == "alpine:latest"
+#   v := {"rule": "no-latest", "message": "Avoid :latest tag"}
+# }`;
+
 export function NewSession() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<'examples' | 'upload' | 'github'>('examples');
@@ -49,6 +60,17 @@ export function NewSession() {
   const [policiesExpanded, setPoliciesExpanded] = useState(false);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [customPolicyInput, setCustomPolicyInput] = useState('');
+  const [customPolicyMode, setCustomPolicyMode] = useState<'directive' | 'rego'>('directive');
+  const [customRegoName, setCustomRegoName] = useState('');
+  const [customRegoDescription, setCustomRegoDescription] = useState('');
+  const [customRegoTarget, setCustomRegoTarget] = useState<PolicyTarget>('any');
+  const [customRegoSource, setCustomRegoSource] = useState(REGO_EDITOR_PLACEHOLDER);
+  const [regoValidation, setRegoValidation] = useState<{
+    status: 'idle' | 'validating' | 'valid' | 'invalid';
+    message?: string;
+    line?: number;
+    col?: number;
+  }>({ status: 'idle' });
   const [configuringPreset, setConfiguringPreset] = useState<PolicyPreset | null>(null);
   const [presetConfigValues, setPresetConfigValues] = useState<Record<string, string>>({});
 
@@ -180,6 +202,50 @@ export function NewSession() {
     };
     setPolicies((prev) => [...prev, newPolicy]);
     setCustomPolicyInput('');
+  };
+
+  const handleValidateCustomRego = async () => {
+    setRegoValidation({ status: 'validating' });
+    try {
+      const result = await api.validateRegoPolicy(customRegoSource);
+      if (result.valid) {
+        setRegoValidation({ status: 'valid' });
+        return;
+      }
+      setRegoValidation({
+        status: 'invalid',
+        ...(result.message && { message: result.message }),
+        ...(result.line !== undefined && { line: result.line }),
+        ...(result.col !== undefined && { col: result.col }),
+      });
+    } catch (err) {
+      setRegoValidation({
+        status: 'invalid',
+        message: err instanceof Error ? err.message : 'Failed to validate Rego policy',
+      });
+    }
+  };
+
+  const handleAddCustomRegoPolicy = () => {
+    if (regoValidation.status !== 'valid') return;
+    if (!customRegoName.trim() || !customRegoDescription.trim() || !customRegoSource.trim()) return;
+
+    const newPolicy: Policy = {
+      id: `custom-rego-${Date.now()}`,
+      name: customRegoName,
+      description: customRegoDescription,
+      type: 'rego',
+      scope: 'session',
+      target: customRegoTarget,
+      rego: customRegoSource,
+      enabled: true,
+    };
+    setPolicies((prev) => [...prev, newPolicy]);
+    setCustomRegoName('');
+    setCustomRegoDescription('');
+    setCustomRegoTarget('any');
+    setCustomRegoSource(REGO_EDITOR_PLACEHOLDER);
+    setRegoValidation({ status: 'idle' });
   };
 
   const handleRemovePolicy = (id: string) => {
@@ -314,23 +380,152 @@ export function NewSession() {
 
                 <div>
                   <h3 className='text-sm font-semibold text-zinc-700 mb-3'>Policies</h3>
-                  <div className='flex gap-2 mb-3'>
-                    <input
-                      type='text'
-                      value={customPolicyInput}
-                      onChange={(e) => setCustomPolicyInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddCustomPolicy()}
-                      placeholder='Add custom policy directive...'
-                      className='flex-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
-                    />
+                  <div className='inline-flex p-1 bg-zinc-100 rounded-lg mb-3'>
                     <button
-                      onClick={handleAddCustomPolicy}
-                      disabled={!customPolicyInput.trim()}
-                      className='px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+                      onClick={() => setCustomPolicyMode('directive')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                        customPolicyMode === 'directive'
+                          ? 'bg-white text-zinc-900 shadow-sm'
+                          : 'text-zinc-600 hover:text-zinc-900'
+                      }`}
                     >
-                      Add
+                      Natural language directive
+                    </button>
+                    <button
+                      onClick={() => setCustomPolicyMode('rego')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                        customPolicyMode === 'rego'
+                          ? 'bg-white text-zinc-900 shadow-sm'
+                          : 'text-zinc-600 hover:text-zinc-900'
+                      }`}
+                    >
+                      Custom Rego
                     </button>
                   </div>
+
+                  {customPolicyMode === 'directive' && (
+                    <div className='flex gap-2 mb-3'>
+                      <input
+                        type='text'
+                        value={customPolicyInput}
+                        onChange={(e) => setCustomPolicyInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddCustomPolicy()}
+                        placeholder='Add custom policy directive...'
+                        className='flex-1 px-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                      />
+                      <button
+                        onClick={handleAddCustomPolicy}
+                        disabled={!customPolicyInput.trim()}
+                        className='px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+                      >
+                        Add Policy
+                      </button>
+                    </div>
+                  )}
+
+                  {customPolicyMode === 'rego' && (
+                    <div className='mb-3 p-4 bg-zinc-50 border border-zinc-200 rounded-lg space-y-3'>
+                      <div className='grid gap-3 md:grid-cols-2'>
+                        <div>
+                          <label className='block text-xs font-medium text-zinc-700 mb-1'>
+                            Name
+                          </label>
+                          <input
+                            type='text'
+                            value={customRegoName}
+                            onChange={(e) => setCustomRegoName(e.target.value)}
+                            placeholder='No Latest Base Image'
+                            className='w-full px-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                          />
+                        </div>
+                        <div>
+                          <label className='block text-xs font-medium text-zinc-700 mb-1'>
+                            Target
+                          </label>
+                          <select
+                            value={customRegoTarget}
+                            onChange={(e) => setCustomRegoTarget(e.target.value as PolicyTarget)}
+                            className='w-full px-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white'
+                          >
+                            <option value='dockerfile'>dockerfile</option>
+                            <option value='manifest'>manifest</option>
+                            <option value='package'>package</option>
+                            <option value='any'>any</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className='block text-xs font-medium text-zinc-700 mb-1'>
+                          Description
+                        </label>
+                        <input
+                          type='text'
+                          value={customRegoDescription}
+                          onChange={(e) => setCustomRegoDescription(e.target.value)}
+                          placeholder='Blocks disallowed image tags and emits actionable messages'
+                          className='w-full px-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+                        />
+                      </div>
+
+                      <RegoEditor
+                        value={customRegoSource}
+                        onChange={(nextValue) => {
+                          setCustomRegoSource(nextValue);
+                          setRegoValidation({ status: 'idle' });
+                        }}
+                        error={
+                          regoValidation.status === 'invalid' && regoValidation.message
+                            ? {
+                                message: regoValidation.message,
+                                ...(regoValidation.line !== undefined && {
+                                  line: regoValidation.line,
+                                }),
+                                ...(regoValidation.col !== undefined && {
+                                  col: regoValidation.col,
+                                }),
+                              }
+                            : undefined
+                        }
+                      />
+
+                      <div className='flex flex-wrap items-center gap-2'>
+                        <button
+                          onClick={handleValidateCustomRego}
+                          disabled={
+                            !customRegoSource.trim() || regoValidation.status === 'validating'
+                          }
+                          className='px-4 py-2 bg-zinc-900 text-white rounded-lg text-sm font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+                        >
+                          {regoValidation.status === 'validating' ? 'Validating...' : 'Validate'}
+                        </button>
+                        <button
+                          onClick={handleAddCustomRegoPolicy}
+                          disabled={
+                            regoValidation.status !== 'valid' ||
+                            !customRegoName.trim() ||
+                            !customRegoDescription.trim() ||
+                            !customRegoSource.trim()
+                          }
+                          className='px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+                        >
+                          Add Policy
+                        </button>
+                        {regoValidation.status === 'valid' && (
+                          <span className='inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700'>
+                            Valid
+                          </span>
+                        )}
+                      </div>
+
+                      {regoValidation.status === 'invalid' && regoValidation.message && (
+                        <div className='px-3 py-2 rounded-lg border border-red-200 bg-red-50'>
+                          <p className='text-sm text-red-700'>{regoValidation.message}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {policies.length > 0 && (
                     <div className='flex flex-wrap gap-2'>
                       {policies.map((policy) => (

@@ -147,6 +147,14 @@ export interface PolicyPreset {
   configFields?: Array<{ key: string; label: string; placeholder: string }>;
 }
 
+export interface RegoValidationResult {
+  valid: boolean;
+  message?: string;
+  line?: number;
+  col?: number;
+  code?: string;
+}
+
 const API_BASE = '/v1';
 
 class ApiClient {
@@ -245,6 +253,35 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ policies }),
     });
+  }
+
+  async validateRegoPolicy(rego: string): Promise<RegoValidationResult> {
+    const response = await fetch(`${API_BASE}/policies/validate`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ rego }),
+    });
+
+    const envelope: ApiEnvelope<RegoValidationResult> = await response.json();
+
+    if (!envelope.ok || !envelope.value) {
+      if (envelope.error?.code === 'SIDECAR_UNAVAILABLE') {
+        throw new Error(
+          'Custom Rego requires the Docker Compose deployment. Run `docker compose up` to enable.',
+        );
+      }
+      if (envelope.error?.code === 'SIDECAR_ERROR') {
+        throw new Error(
+          'Policy sidecar is unreachable. Ensure Docker Compose services are running, then retry validation.',
+        );
+      }
+      throw new Error(envelope.error?.message || 'Failed to validate Rego policy');
+    }
+
+    return envelope.value;
   }
 
   async getGlobalPolicies(): Promise<Policy[]> {
