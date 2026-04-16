@@ -79,6 +79,7 @@
     "node_modules",
     "dist",
     "test",
-    "**/*.test.ts"
+    "**/*.test.ts",
+    "src/api"
   ]
 }

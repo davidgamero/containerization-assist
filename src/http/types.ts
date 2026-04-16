@@ -3,28 +3,15 @@
  */
 
 import type { AppRuntime } from '@/types/runtime';
+import {
+  SESSION_PHASE,
+  type SessionPhase,
+  type ArtifactTag,
+  type PolicyTarget,
+} from './stages/registry';
 
-/** Session phases in pipeline order. */
-export const SESSION_PHASE = {
-  PENDING: 'pending',
-  CLONING: 'cloning',
-  ANALYZING: 'analyzing',
-  GENERATING_DOCKERFILE: 'generating_dockerfile',
-  BUILDING: 'building',
-  SCANNING: 'scanning',
-  GENERATING_MANIFESTS: 'generating_manifests',
-  COMPLETE: 'complete',
-  FAILED: 'failed',
-} as const;
-export type SessionPhase = (typeof SESSION_PHASE)[keyof typeof SESSION_PHASE];
-
-export type ArtifactTag =
-  | 'context'
-  | 'dockerfile'
-  | 'manifest'
-  | 'validation-report'
-  | 'plan'
-  | 'log';
+export { SESSION_PHASE };
+export type { SessionPhase, ArtifactTag, PolicyTarget };
 
 /** Versioned artifact produced by a phase. */
 export interface SessionArtifact {
@@ -46,14 +33,58 @@ export interface LlmConfig {
   model: string;
 }
 
-/** A policy skill — free-text LLM directive applied during generation. */
+export type PolicyType = 'skill' | 'rego' | 'builtin';
+export type PolicyScope = 'global' | 'session';
+export type PolicyOutcome = 'pass' | 'fail' | 'warn' | 'skip';
+
+export interface Policy {
+  id: string;
+  name: string;
+  description: string;
+  type: PolicyType;
+  scope: PolicyScope;
+  target: PolicyTarget;
+  rego?: string;
+  directive?: string;
+  /** Identifier for a built-in TypeScript evaluator (when type === 'builtin'). */
+  builtinId?: string;
+  /** Parametric config injected into Rego input as `input.config`. */
+  config?: Record<string, unknown>;
+  enabled: boolean;
+}
+
+export interface PolicyViolation {
+  rule: string;
+  severity: 'block' | 'warn';
+  message: string;
+  line?: number;
+}
+
+export interface PolicyResult {
+  policyId: string;
+  policyName: string;
+  artifactId: string;
+  artifactName: string;
+  phase: SessionPhase;
+  outcome: PolicyOutcome;
+  violations: PolicyViolation[];
+  warnings: PolicyViolation[];
+  evaluatedAt: Date;
+}
+
+export interface SessionPolicies {
+  policies: Policy[];
+  results: PolicyResult[];
+}
+
+/** @deprecated Use Policy with type='skill' instead. Kept for migration compatibility. */
 export interface PolicySkill {
   id: string;
   name: string;
   description: string;
 }
 
-/** A validation skill — Rego policy applied during validation. */
+/** @deprecated Use Policy with type='rego' instead. Kept for migration compatibility. */
 export interface ValidationSkill {
   id: string;
   name: string;
@@ -61,10 +92,33 @@ export interface ValidationSkill {
   rego: string;
 }
 
-/** Per-session policy configuration. */
-export interface SessionPolicies {
-  policySkills: PolicySkill[];
-  validationSkills: ValidationSkill[];
+export function policyFromSkill(skill: PolicySkill, scope: PolicyScope = 'session'): Policy {
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    type: 'skill',
+    scope,
+    target: 'dockerfile',
+    directive: skill.description,
+    enabled: true,
+  };
+}
+
+export function policyFromValidationSkill(
+  skill: ValidationSkill,
+  scope: PolicyScope = 'session',
+): Policy {
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    type: 'rego',
+    scope,
+    target: 'dockerfile',
+    rego: skill.rego,
+    enabled: true,
+  };
 }
 
 /** Persistent session state. */
@@ -87,11 +141,12 @@ export interface Session {
 
 /** SSE event emitted during session processing. */
 export interface SessionEvent {
-  type: 'phase_change' | 'artifact' | 'log' | 'error' | 'complete';
+  type: 'phase_change' | 'artifact' | 'log' | 'error' | 'complete' | 'policy_result';
   sessionId: string;
   phase?: SessionPhase;
   message?: string;
   artifactId?: string;
+  result?: PolicyResult;
   timestamp: Date;
 }
 

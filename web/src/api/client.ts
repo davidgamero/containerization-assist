@@ -1,13 +1,22 @@
-export type Phase =
-  | 'pending'
-  | 'cloning'
-  | 'analyzing'
-  | 'generating_dockerfile'
-  | 'building'
-  | 'scanning'
-  | 'generating_manifests'
-  | 'complete'
-  | 'failed';
+export {
+  SESSION_PHASE,
+  STAGES,
+  STAGES_BY_KEY,
+  ORDERED_STAGES,
+  EXECUTABLE_STAGES,
+  getStageState,
+  isTerminalPhase,
+} from '../../../src/http/stages/registry';
+export type {
+  SessionPhase,
+  SessionPhase as Phase,
+  ArtifactTag,
+  PolicyTarget,
+  StageState,
+  StageDefinition,
+} from '../../../src/http/stages/registry';
+
+import type { SessionPhase as Phase, PolicyTarget } from '../../../src/http/stages/registry';
 
 export interface ApiError {
   code: string;
@@ -66,11 +75,12 @@ export interface Artifact {
 }
 
 export interface SessionEvent {
-  type: 'phase_change' | 'artifact' | 'log' | 'error' | 'complete';
+  type: 'phase_change' | 'artifact' | 'log' | 'error' | 'complete' | 'policy_result';
   sessionId: string;
   phase?: Phase;
   message?: string;
   artifactId?: string;
+  result?: PolicyResult;
   timestamp: string;
 }
 
@@ -81,22 +91,46 @@ export interface ExampleApp {
   tags: string[];
 }
 
-export interface PolicySkill {
+export type PolicyType = 'skill' | 'rego' | 'builtin';
+export type PolicyScope = 'global' | 'session';
+export type PolicyOutcome = 'pass' | 'fail' | 'warn' | 'skip';
+
+export interface Policy {
   id: string;
   name: string;
   description: string;
+  type: PolicyType;
+  scope: PolicyScope;
+  target: PolicyTarget;
+  rego?: string;
+  directive?: string;
+  builtinId?: string;
+  config?: Record<string, unknown>;
+  enabled: boolean;
 }
 
-export interface ValidationSkill {
-  id: string;
-  name: string;
-  description: string;
-  rego: string;
+export interface PolicyViolation {
+  rule: string;
+  severity: 'block' | 'warn';
+  message: string;
+  line?: number;
+}
+
+export interface PolicyResult {
+  policyId: string;
+  policyName: string;
+  artifactId: string;
+  artifactName: string;
+  phase: Phase;
+  outcome: PolicyOutcome;
+  violations: PolicyViolation[];
+  warnings: PolicyViolation[];
+  evaluatedAt: string;
 }
 
 export interface SessionPolicies {
-  policySkills: PolicySkill[];
-  validationSkills: ValidationSkill[];
+  policies: Policy[];
+  results: PolicyResult[];
 }
 
 export interface PolicyPreset {
@@ -104,6 +138,11 @@ export interface PolicyPreset {
   name: string;
   description: string;
   category: 'policy' | 'validation';
+  target: PolicyTarget;
+  type: PolicyType;
+  builtinId?: string;
+  rego?: string;
+  defaultConfig?: Record<string, unknown>;
   configurable?: boolean;
   configFields?: Array<{ key: string; label: string; placeholder: string }>;
 }
@@ -201,14 +240,15 @@ class ApiClient {
     return this.request('/policy-presets');
   }
 
-  async updateSessionPolicies(
-    sessionId: string,
-    policies: SessionPolicies,
-  ): Promise<SessionPolicies> {
+  async updateSessionPolicies(sessionId: string, policies: Policy[]): Promise<SessionPolicies> {
     return this.request(`/sessions/${sessionId}/policies`, {
       method: 'PATCH',
-      body: JSON.stringify(policies),
+      body: JSON.stringify({ policies }),
     });
+  }
+
+  async getGlobalPolicies(): Promise<Policy[]> {
+    return this.request('/policies/global');
   }
 
   async getConfig(): Promise<{ demoMode: boolean }> {

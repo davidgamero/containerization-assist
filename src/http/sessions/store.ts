@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type {
   ArtifactTag,
+  Policy,
+  PolicyResult,
   Session,
   SessionArtifact,
   SessionEvent,
@@ -11,7 +13,7 @@ import { SESSION_PHASE } from '../types';
 
 type EventListener = (event: SessionEvent) => void;
 
-const EMPTY_POLICIES: SessionPolicies = { policySkills: [], validationSkills: [] };
+const EMPTY_POLICIES: SessionPolicies = { policies: [], results: [] };
 
 export class SessionStore {
   private sessions = new Map<string, Session>();
@@ -119,11 +121,30 @@ export class SessionStore {
     });
   }
 
-  updatePolicies(id: string, policies: SessionPolicies): void {
+  addPolicyResults(id: string, results: PolicyResult[]): void {
     const session = this.sessions.get(id);
     if (!session) return;
 
-    session.policies = policies;
+    session.policies.results.push(...results);
+    session.updatedAt = new Date();
+
+    for (const result of results) {
+      this.emit(id, {
+        type: 'policy_result',
+        sessionId: id,
+        phase: result.phase,
+        result,
+        message: `Policy "${result.policyName}" → ${result.outcome} (${result.artifactName})`,
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  updatePolicies(id: string, policies: Policy[]): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+
+    session.policies = { policies, results: session.policies.results };
     session.updatedAt = new Date();
   }
 

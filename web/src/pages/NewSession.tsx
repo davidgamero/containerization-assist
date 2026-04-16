@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, ExampleApp, PolicyPreset, PolicySkill, ValidationSkill } from '../api/client';
+import { api, ExampleApp, PolicyPreset, Policy } from '../api/client';
 import { FileUpload } from '../components/FileUpload';
 
 const TAG_COLORS: Record<string, string> = {
@@ -17,6 +17,25 @@ function tagColor(tag: string): string {
   return TAG_COLORS[tag] ?? 'bg-zinc-100 text-zinc-600';
 }
 
+function parseAllowlistInput(
+  input: string,
+  fallback: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  const items = input
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && item !== '*');
+  if (items.length === 0) return fallback;
+
+  const allowed_images: string[] = [];
+  const allowed_patterns: string[] = [];
+  for (const item of items) {
+    if (item.includes('*')) allowed_patterns.push(item);
+    else allowed_images.push(item);
+  }
+  return { allowed_images, allowed_patterns };
+}
+
 export function NewSession() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<'examples' | 'upload' | 'github'>('examples');
@@ -28,8 +47,7 @@ export function NewSession() {
   const [examples, setExamples] = useState<ExampleApp[]>([]);
   const [policyPresets, setPolicyPresets] = useState<PolicyPreset[]>([]);
   const [policiesExpanded, setPoliciesExpanded] = useState(false);
-  const [policySkills, setPolicySkills] = useState<PolicySkill[]>([]);
-  const [validationSkills, setValidationSkills] = useState<ValidationSkill[]>([]);
+  const [policies, setPolicies] = useState<Policy[]>([]);
   const [customPolicyInput, setCustomPolicyInput] = useState('');
   const [configuringPreset, setConfiguringPreset] = useState<PolicyPreset | null>(null);
   const [presetConfigValues, setPresetConfigValues] = useState<Record<string, string>>({});
@@ -51,7 +69,7 @@ export function NewSession() {
     setError(null);
     try {
       const session = await api.createSessionFromUpload(selectedFile);
-      await api.updateSessionPolicies(session.id, { policySkills, validationSkills });
+      await api.updateSessionPolicies(session.id, policies);
       navigate(`/sessions/${session.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
@@ -66,7 +84,7 @@ export function NewSession() {
     setError(null);
     try {
       const session = await api.createSessionFromGitHub(repoUrl, ref || undefined);
-      await api.updateSessionPolicies(session.id, { policySkills, validationSkills });
+      await api.updateSessionPolicies(session.id, policies);
       navigate(`/sessions/${session.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create session');
@@ -80,7 +98,7 @@ export function NewSession() {
     setError(null);
     try {
       const result = await api.createSessionFromExample(exampleId);
-      await api.updateSessionPolicies(result.sessionId, { policySkills, validationSkills });
+      await api.updateSessionPolicies(result.sessionId, policies);
       navigate(`/sessions/${result.sessionId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create session');
@@ -90,32 +108,26 @@ export function NewSession() {
   };
 
   const handleAddPreset = (preset: PolicyPreset) => {
-    // If configurable, show config UI instead of adding directly
     if (preset.configurable) {
       setConfiguringPreset(preset);
       setPresetConfigValues({});
       return;
     }
 
-    if (preset.category === 'policy') {
-      const newPolicy: PolicySkill = {
-        id: preset.id,
-        name: preset.name,
-        description: preset.description,
-      };
-      if (!policySkills.find((p) => p.id === preset.id)) {
-        setPolicySkills((prev) => [...prev, newPolicy]);
-      }
-    } else {
-      const newValidation: ValidationSkill = {
-        id: preset.id,
-        name: preset.name,
-        description: preset.description,
-        rego: '',
-      };
-      if (!validationSkills.find((v) => v.id === preset.id)) {
-        setValidationSkills((prev) => [...prev, newValidation]);
-      }
+    const newPolicy: Policy = {
+      id: preset.id,
+      name: preset.name,
+      description: preset.description,
+      type: preset.type,
+      scope: 'session',
+      target: preset.target,
+      enabled: true,
+      ...(preset.builtinId && { builtinId: preset.builtinId }),
+      ...(preset.rego && { rego: preset.rego }),
+      ...(preset.defaultConfig && { config: preset.defaultConfig }),
+    };
+    if (!policies.find((p) => p.id === preset.id)) {
+      setPolicies((prev) => [...prev, newPolicy]);
     }
   };
 
@@ -125,54 +137,53 @@ export function NewSession() {
     const configField = configuringPreset.configFields?.[0];
     const configValue = configField ? presetConfigValues[configField.key] || '' : '';
 
-    if (configuringPreset.category === 'policy') {
-      const newPolicy: PolicySkill = {
-        id: configuringPreset.id,
-        name: configuringPreset.name,
-        description: configuringPreset.description,
-      };
-      if (!policySkills.find((p) => p.id === configuringPreset.id)) {
-        setPolicySkills((prev) => [...prev, newPolicy]);
-      }
-    } else {
-      // For validation skills, include the config value in the description
-      const descriptionWithConfig = configValue
-        ? `${configuringPreset.description.split('.')[0]}. Allowed: ${configValue}`
-        : configuringPreset.description;
+    const description = configValue
+      ? `${configuringPreset.description.split('.')[0]}. Allowed: ${configValue}`
+      : configuringPreset.description;
 
-      const newValidation: ValidationSkill = {
-        id: configuringPreset.id,
-        name: configuringPreset.name,
-        description: descriptionWithConfig,
-        rego: '', // Server will build the rego from the config
-      };
-      if (!validationSkills.find((v) => v.id === configuringPreset.id)) {
-        setValidationSkills((prev) => [...prev, newValidation]);
-      }
+    const config =
+      configuringPreset.id === 'image-allowlist'
+        ? parseAllowlistInput(configValue, configuringPreset.defaultConfig)
+        : configuringPreset.defaultConfig;
+
+    const newPolicy: Policy = {
+      id: configuringPreset.id,
+      name: configuringPreset.name,
+      description,
+      type: configuringPreset.type,
+      scope: 'session',
+      target: configuringPreset.target,
+      enabled: true,
+      ...(configuringPreset.builtinId && { builtinId: configuringPreset.builtinId }),
+      ...(configuringPreset.rego && { rego: configuringPreset.rego }),
+      ...(config && { config }),
+    };
+    if (!policies.find((p) => p.id === configuringPreset.id)) {
+      setPolicies((prev) => [...prev, newPolicy]);
     }
 
-    // Reset config state
     setConfiguringPreset(null);
     setPresetConfigValues({});
   };
 
   const handleAddCustomPolicy = () => {
     if (!customPolicyInput.trim()) return;
-    const newPolicy: PolicySkill = {
+    const newPolicy: Policy = {
       id: `custom-${Date.now()}`,
       name: customPolicyInput,
       description: customPolicyInput,
+      type: 'skill',
+      scope: 'session',
+      target: 'any',
+      directive: customPolicyInput,
+      enabled: true,
     };
-    setPolicySkills((prev) => [...prev, newPolicy]);
+    setPolicies((prev) => [...prev, newPolicy]);
     setCustomPolicyInput('');
   };
 
-  const handleRemovePolicySkill = (id: string) => {
-    setPolicySkills((prev) => prev.filter((p) => p.id !== id));
-  };
-
-  const handleRemoveValidationSkill = (id: string) => {
-    setValidationSkills((prev) => prev.filter((v) => v.id !== id));
+  const handleRemovePolicy = (id: string) => {
+    setPolicies((prev) => prev.filter((p) => p.id !== id));
   };
 
   const tabs: { key: typeof mode; label: string }[] = [
@@ -302,7 +313,7 @@ export function NewSession() {
                 </div>
 
                 <div>
-                  <h3 className='text-sm font-semibold text-zinc-700 mb-3'>Policy Skills</h3>
+                  <h3 className='text-sm font-semibold text-zinc-700 mb-3'>Policies</h3>
                   <div className='flex gap-2 mb-3'>
                     <input
                       type='text'
@@ -320,45 +331,25 @@ export function NewSession() {
                       Add
                     </button>
                   </div>
-                  {policySkills.length > 0 && (
+                  {policies.length > 0 && (
                     <div className='flex flex-wrap gap-2'>
-                      {policySkills.map((skill) => (
+                      {policies.map((policy) => (
                         <span
-                          key={skill.id}
-                          className='inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium'
+                          key={policy.id}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
+                            policy.type === 'rego'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-violet-100 text-violet-700'
+                          }`}
                         >
-                          {skill.name}
+                          {policy.name}
                           <button
-                            onClick={() => handleRemovePolicySkill(skill.id)}
-                            className='hover:bg-violet-200 rounded-full p-0.5'
-                          >
-                            <svg className='w-3 h-3' fill='currentColor' viewBox='0 0 20 20'>
-                              <path
-                                fillRule='evenodd'
-                                d='M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z'
-                                clipRule='evenodd'
-                              />
-                            </svg>
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <h3 className='text-sm font-semibold text-zinc-700 mb-3'>Validation Skills</h3>
-                  {validationSkills.length > 0 && (
-                    <div className='flex flex-wrap gap-2'>
-                      {validationSkills.map((skill) => (
-                        <span
-                          key={skill.id}
-                          className='inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium'
-                        >
-                          {skill.name}
-                          <button
-                            onClick={() => handleRemoveValidationSkill(skill.id)}
-                            className='hover:bg-emerald-200 rounded-full p-0.5'
+                            onClick={() => handleRemovePolicy(policy.id)}
+                            className={`rounded-full p-0.5 ${
+                              policy.type === 'rego'
+                                ? 'hover:bg-emerald-200'
+                                : 'hover:bg-violet-200'
+                            }`}
                           >
                             <svg className='w-3 h-3' fill='currentColor' viewBox='0 0 20 20'>
                               <path

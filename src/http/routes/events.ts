@@ -29,6 +29,7 @@ export function eventRoutes(sessionStore: SessionStore): Hono<HonoEnv> {
             phase: a.phase,
             version: a.version,
           })),
+          policies: session.policies.results,
         }),
         event: 'init',
         id: String(eventId++),

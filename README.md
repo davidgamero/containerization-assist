@@ -12,6 +12,20 @@ An AI-powered containerization assistant that helps you build, scan, and deploy 
 
 > **[Full documentation →](https://azure.github.io/containerization-assist/)**
 
+## Containerization Server (HTTP Mode)
+
+In addition to the MCP protocol mode, this project can run as a standalone HTTP server with a web UI for interactive containerization workflows.
+
+```bash
+# Start the server
+npx containerization-assist-mcp serve
+
+# Or use the dev script (runs backend + frontend together)
+./dev.sh
+```
+
+The server runs on port 3000 (backend API) and port 5173 (frontend dev server). See the [Containerization Server Guide](docs/guides/containerization-server.md) for full documentation.
+
 ## Install
 
 

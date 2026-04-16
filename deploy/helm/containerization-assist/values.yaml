@@ -1,0 +1,109 @@
+# Default values for containerization-assist
+
+replicaCount: 1
+
+# --- API Server ---
+api:
+  image:
+    repository: containerization-assist-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 3000
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  env:
+    LOG_LEVEL: info
+
+# --- Web UI ---
+web:
+  enabled: true
+  image:
+    repository: containerization-assist-web
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# --- Docker-in-Docker Sidecar ---
+dind:
+  enabled: true
+  image:
+    repository: docker
+    tag: "27-dind"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  storage: 20Gi
+  storageClass: ""
+
+# --- LLM Configuration ---
+llm:
+  baseUrl: ""
+  model: "gpt-4o"
+  apiVersion: ""
+
+# --- Secrets ---
+secrets:
+  # Set via --set secrets.openaiApiKey=<key> or external secret store
+  openaiApiKey: ""
+  # Optional API key for the REST API itself
+  caApiKey: ""
+
+# --- Image Pull Secrets ---
+imagePullSecrets: []
+
+# --- Service Account & RBAC ---
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+# --- Ingress ---
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts:
+    - host: containerization-assist.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /
+          pathType: Prefix
+          service: web
+  tls: []
+
+# --- Persistence (SQLite job store) ---
+persistence:
+  enabled: false
+  size: 1Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+# --- Pod configuration ---
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podSecurityContext:
+  fsGroup: 1001

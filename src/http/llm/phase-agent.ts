@@ -1,9 +1,23 @@
 import yaml from 'js-yaml';
 import type { AppRuntime } from '@/types/runtime';
-import type { ArtifactTag, SessionArtifact, SessionPolicies } from '../types';
+import {
+  SESSION_PHASE,
+  type ArtifactTag,
+  type SessionArtifact,
+  type SessionPhase,
+  type SessionPolicies,
+} from '../types';
 import { LlmClient } from './client';
 
-type LlmPhase = 'generating_dockerfile' | 'generating_manifests';
+type LlmPhase =
+  | typeof SESSION_PHASE.GENERATING_DOCKERFILE
+  | typeof SESSION_PHASE.GENERATING_MANIFESTS;
+
+function isLlmPhase(phase: SessionPhase): phase is LlmPhase {
+  return (
+    phase === SESSION_PHASE.GENERATING_DOCKERFILE || phase === SESSION_PHASE.GENERATING_MANIFESTS
+  );
+}
 
 function collectArtifacts(artifacts: SessionArtifact[], tag?: ArtifactTag | undefined): string {
   const filtered = tag ? artifacts.filter((a) => a.tag === tag) : artifacts;
@@ -21,8 +35,9 @@ function collectArtifacts(artifacts: SessionArtifact[], tag?: ArtifactTag | unde
 }
 
 function policyDirectives(policies: SessionPolicies): string {
-  if (policies.policySkills.length === 0) return 'No additional policy directives.';
-  return policies.policySkills.map((skill) => `- ${skill.name}: ${skill.description}`).join('\n');
+  const skillPolicies = policies.policies.filter((p) => p.type === 'skill' && p.enabled);
+  if (skillPolicies.length === 0) return 'No additional policy directives.';
+  return skillPolicies.map((p) => `- ${p.name}: ${p.directive ?? p.description}`).join('\n');
 }
 
 function extractDockerValidationGrade(validationResult: unknown): string | undefined {
@@ -45,7 +60,7 @@ function extractDockerValidationIssues(validationResult: unknown): string {
 }
 
 export async function runLlmPhase(params: {
-  phase: LlmPhase;
+  phase: SessionPhase;
   llmClient: LlmClient;
   toolOutput: unknown;
   priorArtifacts: SessionArtifact[];
@@ -67,6 +82,10 @@ export async function runLlmPhase(params: {
     log,
   } = params;
 
+  if (!isLlmPhase(phase)) {
+    throw new Error(`runLlmPhase called with non-LLM phase: ${phase}`);
+  }
+
   const metadata = {
     transport: 'http',
     requestId: sessionId,
@@ -77,7 +96,7 @@ export async function runLlmPhase(params: {
     },
   };
 
-  if (phase === 'generating_dockerfile') {
+  if (phase === SESSION_PHASE.GENERATING_DOCKERFILE) {
     const systemPrompt =
       'You are a Docker expert. Generate a production-ready Dockerfile based on the analysis and plan below. Output ONLY the Dockerfile content, no markdown fences.';
 

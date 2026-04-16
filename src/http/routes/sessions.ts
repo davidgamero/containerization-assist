@@ -1,18 +1,21 @@
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { AppRuntime } from '@/types/runtime';
-import type { HonoEnv, ApiResponse, LlmConfig, SessionPolicies } from '../types';
+import type { HonoEnv, ApiResponse, LlmConfig, Policy, SessionPolicies } from '../types';
 import type { SessionStore } from '../sessions/store';
 import type { WorkspaceManager } from '../workspace/manager';
 import { runBuildWorkflow } from '../workflows/build-workflow';
 import { EXAMPLE_APPS, getExample } from '../examples/catalog';
 import { POLICY_PRESETS } from '../policies/presets';
+import type { GlobalPolicyStore } from '../policies/global-store';
+import type { RegoRunner } from '../policies/rego-runner';
 
 interface SessionRouteConfig {
   githubClientId?: string | undefined;
   githubClientSecret?: string | undefined;
   demoMode?: boolean | undefined;
   llmConfig?: LlmConfig | undefined;
+  regoRunnerPromise?: Promise<RegoRunner | undefined> | undefined;
 }
 
 export function sessionRoutes(
@@ -20,10 +23,12 @@ export function sessionRoutes(
   sessionStore: SessionStore,
   workspaceManager: WorkspaceManager,
   _config: SessionRouteConfig,
+  globalPolicyStore: GlobalPolicyStore,
 ): Hono<HonoEnv> {
   const router = new Hono<HonoEnv>();
   const demoMode = _config.demoMode ?? false;
   const llmConfig = _config.llmConfig;
+  const regoRunnerPromise = _config.regoRunnerPromise ?? Promise.resolve(undefined);
 
   // List all sessions.
   router.get('/sessions', (c) => {
@@ -133,7 +138,15 @@ export function sessionRoutes(
 
     try {
       const workspace = await workspaceManager.createFromZipStream(stream, filename);
-      const session = sessionStore.create({ type: 'zip', filename }, workspace.srcPath);
+      const initialPolicies: SessionPolicies = {
+        policies: globalPolicyStore.mergeWithSession([]),
+        results: [],
+      };
+      const session = sessionStore.create(
+        { type: 'zip', filename },
+        workspace.srcPath,
+        initialPolicies,
+      );
 
       runBuildWorkflow(
         runtime,
@@ -143,6 +156,7 @@ export function sessionRoutes(
         session.policies,
         demoMode,
         llmConfig,
+        await regoRunnerPromise,
       ).catch(() => {});
 
       const body: ApiResponse = {
@@ -186,9 +200,14 @@ export function sessionRoutes(
 
     try {
       const workspace = await workspaceManager.createFromGitHub(repoUrl, token, ref ?? 'HEAD');
+      const initialPolicies: SessionPolicies = {
+        policies: globalPolicyStore.mergeWithSession([]),
+        results: [],
+      };
       const session = sessionStore.create(
         { type: 'github', repoUrl, ref: ref ?? 'HEAD' },
         workspace.srcPath,
+        initialPolicies,
       );
 
       runBuildWorkflow(
@@ -199,6 +218,7 @@ export function sessionRoutes(
         session.policies,
         demoMode,
         llmConfig,
+        await regoRunnerPromise,
       ).catch(() => {});
 
       const body: ApiResponse = {
@@ -251,9 +271,14 @@ export function sessionRoutes(
 
     try {
       const workspace = await workspaceManager.createFromExample(example.files);
+      const initialPolicies: SessionPolicies = {
+        policies: globalPolicyStore.mergeWithSession([]),
+        results: [],
+      };
       const session = sessionStore.create(
         { type: 'example' as const, exampleId: example.id, exampleName: example.name },
         workspace.srcPath,
+        initialPolicies,
       );
 
       runBuildWorkflow(
@@ -264,6 +289,7 @@ export function sessionRoutes(
         session.policies,
         demoMode,
         llmConfig,
+        await regoRunnerPromise,
       ).catch(() => {});
 
       const body: ApiResponse = {
@@ -282,11 +308,16 @@ export function sessionRoutes(
 
   router.get('/policy-presets', (c) => {
     const presets = POLICY_PRESETS.map(
-      ({ id, name, description, category, configurable, configFields }) => ({
+      ({ id, name, description, category, policy, configurable, configFields }) => ({
         id,
         name,
         description,
         category,
+        target: policy.target,
+        type: policy.type,
+        builtinId: policy.builtinId,
+        rego: policy.rego,
+        defaultConfig: policy.config,
         configurable,
         configFields,
       }),
@@ -306,12 +337,24 @@ export function sessionRoutes(
       );
     }
 
-    const body = await c.req.json<SessionPolicies>();
-    sessionStore.updatePolicies(c.req.param('id'), body);
+    const body = await c.req.json<{ policies: Policy[] }>();
+    const sessionOnly = (body.policies ?? []).filter((p: Policy) => p.scope !== 'global');
+    const merged = globalPolicyStore.mergeWithSession(sessionOnly);
+    sessionStore.updatePolicies(c.req.param('id'), merged);
     return c.json({
       ok: true,
       value: sessionStore.get(c.req.param('id'))?.policies,
     } satisfies ApiResponse);
+  });
+
+  router.get('/policies/global', (c) => {
+    return c.json({ ok: true, value: globalPolicyStore.getAll() } satisfies ApiResponse);
+  });
+
+  router.put('/policies/global', async (c) => {
+    const body = await c.req.json<{ policies: Policy[] }>();
+    globalPolicyStore.setAll(body.policies ?? []);
+    return c.json({ ok: true, value: globalPolicyStore.getAll() } satisfies ApiResponse);
   });
 
   return router;

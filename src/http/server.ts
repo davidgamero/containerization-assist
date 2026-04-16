@@ -20,6 +20,8 @@ import { eventRoutes } from './routes/events';
 import { errorHandler } from './middleware/error-handler';
 import { SessionStore } from './sessions/store';
 import { WorkspaceManager } from './workspace/manager';
+import { GlobalPolicyStore } from './policies/global-store';
+import { createRegoRunner } from './policies/rego-runner';
 import type { LlmConfig } from './types';
 
 export interface HttpServerOptions {
@@ -62,6 +64,8 @@ export function createHttpServer(runtime: AppRuntime, options: HttpServerOptions
 
   const sessionStore = new SessionStore();
   const workspaceManager = new WorkspaceManager();
+  const globalPolicyStore = new GlobalPolicyStore();
+  const regoRunnerPromise = createRegoRunner((msg) => console.error(`[policies] ${msg}`));
 
   const app = new Hono<HonoEnv>();
 
@@ -89,12 +93,19 @@ export function createHttpServer(runtime: AppRuntime, options: HttpServerOptions
   app.route('/v1', toolRoutes());
   app.route(
     '/v1',
-    sessionRoutes(runtime, sessionStore, workspaceManager, {
-      githubClientId: githubClientId ?? '',
-      githubClientSecret: githubClientSecret ?? '',
-      demoMode,
-      llmConfig,
-    }),
+    sessionRoutes(
+      runtime,
+      sessionStore,
+      workspaceManager,
+      {
+        githubClientId: githubClientId ?? '',
+        githubClientSecret: githubClientSecret ?? '',
+        demoMode,
+        llmConfig,
+        regoRunnerPromise,
+      },
+      globalPolicyStore,
+    ),
   );
   app.route('/v1', eventRoutes(sessionStore));
   app.route(

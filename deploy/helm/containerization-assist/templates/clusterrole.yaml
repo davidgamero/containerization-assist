@@ -1,0 +1,56 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ca.fullname" . }}
+  labels:
+    {{- include "ca.labels" . | nindent 4 }}
+rules:
+  # Core API — namespaces, pods, services, configmaps, secrets
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - services
+      - configmaps
+      - secrets
+      - serviceaccounts
+      - pods
+      - pods/log
+    verbs: ["get", "list", "create", "update", "patch", "delete", "watch"]
+  # Apps API — deployments, statefulsets, daemonsets, replicasets
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+    verbs: ["get", "list", "create", "update", "patch", "delete", "watch"]
+  # Networking — ingresses
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - ingressclasses
+    verbs: ["get", "list", "create", "update", "patch"]
+  # RBAC — roles and bindings for user app namespaces
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+    verbs: ["get", "list", "create", "update", "patch"]
+  # Authorization — permission checks
+  - apiGroups: ["authorization.k8s.io"]
+    resources:
+      - selfsubjectaccessreviews
+    verbs: ["create"]
+  # Batch — jobs and cronjobs
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  # Autoscaling — HPA
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "create", "update", "patch"]
+{{- end }}

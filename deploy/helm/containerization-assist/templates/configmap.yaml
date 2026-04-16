@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ca.fullname" . }}-config
+  labels:
+    {{- include "ca.labels" . | nindent 4 }}
+data:
+  LOG_LEVEL: {{ .Values.api.env.LOG_LEVEL | quote }}
+  NODE_ENV: "production"
+  PORT: {{ .Values.api.port | quote }}
+  DATA_DIR: "/app/.data"
+  {{- if .Values.llm.model }}
+  OPENAI_MODEL: {{ .Values.llm.model | quote }}
+  {{- end }}
+  {{- if .Values.llm.apiVersion }}
+  OPENAI_API_VERSION: {{ .Values.llm.apiVersion | quote }}
+  {{- end }}
+  {{- if .Values.dind.enabled }}
+  DOCKER_HOST: "tcp://localhost:2376"
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: "/certs/client"
+  {{- end }}

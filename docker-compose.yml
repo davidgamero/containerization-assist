@@ -28,8 +28,8 @@ services:
 
   ui:
     build:
-      context: ./web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: web/Dockerfile
     ports:
       - "${UI_PORT:-8080}:80"
     depends_on:

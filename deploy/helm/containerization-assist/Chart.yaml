@@ -1,0 +1,17 @@
+apiVersion: v2
+name: containerization-assist
+description: AI-powered containerization assistant with REST API and Web UI
+type: application
+version: 0.1.0
+appVersion: "1.3.2"
+keywords:
+  - containerization
+  - docker
+  - kubernetes
+  - ai
+  - mcp
+home: https://github.com/Azure/containerization-assist
+sources:
+  - https://github.com/Azure/containerization-assist
+maintainers:
+  - name: Azure Containerization Team
