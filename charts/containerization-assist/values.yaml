@@ -1,0 +1,93 @@
+api:
+  replicaCount: 2
+  image:
+    repository: containerization-assist-api
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  env:
+    port: 3000
+    nodeEnv: "production"
+    corsOrigin: "*"
+    llmBaseUrl: "https://api.openai.com/v1"
+    llmModel: "gpt-4o"
+
+ui:
+  replicaCount: 2
+  image:
+    repository: containerization-assist-ui
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+llm:
+  apiKeySecret: ""
+  apiKeySecretKey: "llm-api-key"
+
+auth:
+  github:
+    clientId: ""
+    clientSecret: ""
+  apiKeys: {}
+
+build:
+  kaniko:
+    image: cgr.dev/YOUR-ORG/kaniko
+    tag: "v1.25.13"
+    credHelper: "acr-env"
+
+workspace:
+  persistence:
+    enabled: true
+    storageClass: "default"
+    accessMode: ReadWriteMany
+    size: 10Gi
+  basePath: /tmp/containerization-assist
+
+policy:
+  enabled: false
+  customPolicies: {}
+
+rbac:
+  create: true
+  scope: namespace
+
+autoscaling:
+  enabled: false
+  api:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  ui:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""

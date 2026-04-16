@@ -1,0 +1,63 @@
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "containerization-assist.fullname" . }}-api
+  labels:
+    {{- include "containerization-assist.api.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "containerization-assist.fullname" . }}-api
+  minReplicas: {{ .Values.autoscaling.api.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.api.maxReplicas }}
+  metrics:
+  {{- if .Values.autoscaling.api.targetCPUUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.autoscaling.api.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.autoscaling.api.targetMemoryUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.autoscaling.api.targetMemoryUtilizationPercentage }}
+  {{- end }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "containerization-assist.fullname" . }}-ui
+  labels:
+    {{- include "containerization-assist.ui.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "containerization-assist.fullname" . }}-ui
+  minReplicas: {{ .Values.autoscaling.ui.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.ui.maxReplicas }}
+  metrics:
+  {{- if .Values.autoscaling.ui.targetCPUUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.autoscaling.ui.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.autoscaling.ui.targetMemoryUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.autoscaling.ui.targetMemoryUtilizationPercentage }}
+  {{- end }}
+{{- end }}

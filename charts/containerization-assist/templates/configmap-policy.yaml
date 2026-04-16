@@ -1,0 +1,13 @@
+{{- if .Values.policy.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "containerization-assist.fullname" . }}-policy
+  labels:
+    {{- include "containerization-assist.labels" . | nindent 4 }}
+data:
+  {{- range $filename, $content := .Values.policy.customPolicies }}
+  {{ $filename }}: |
+{{ $content | indent 4 }}
+  {{- end }}
+{{- end }}

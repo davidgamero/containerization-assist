@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "containerization-assist.fullname" . }}-ui
+  labels:
+    {{- include "containerization-assist.ui.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.ui.service.type }}
+  ports:
+  - port: {{ .Values.ui.service.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "containerization-assist.ui.selectorLabels" . | nindent 4 }}

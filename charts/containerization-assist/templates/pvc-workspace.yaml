@@ -1,0 +1,15 @@
+{{- if .Values.workspace.persistence.enabled -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "containerization-assist.fullname" . }}-workspace
+  labels:
+    {{- include "containerization-assist.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.workspace.persistence.accessMode }}
+  storageClassName: {{ .Values.workspace.persistence.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.workspace.persistence.size }}
+{{- end }}

@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "containerization-assist.fullname" . }}-api
+  labels:
+    {{- include "containerization-assist.api.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.api.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "containerization-assist.api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "containerization-assist.api.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "containerization-assist.serviceAccountName" . }}
+      containers:
+      - name: api
+        image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+        imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.api.env.port }}
+          protocol: TCP
+        env:
+        - name: PORT
+          value: {{ .Values.api.env.port | quote }}
+        - name: NODE_ENV
+          value: {{ .Values.api.env.nodeEnv | quote }}
+        - name: CORS_ORIGIN
+          value: {{ .Values.api.env.corsOrigin | quote }}
+        - name: GITHUB_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "containerization-assist.fullname" . }}-auth
+              key: github-client-id
+        - name: GITHUB_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "containerization-assist.fullname" . }}-auth
+              key: github-client-secret
+        - name: LLM_BASE_URL
+          value: {{ .Values.api.env.llmBaseUrl | quote }}
+        - name: LLM_MODEL
+          value: {{ .Values.api.env.llmModel | quote }}
+        {{- if .Values.llm.apiKeySecret }}
+        - name: LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.llm.apiKeySecret }}
+              key: {{ .Values.llm.apiKeySecretKey }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /v1/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /v1/health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          {{- toYaml .Values.api.resources | nindent 10 }}
+        volumeMounts:
+        - name: workspace
+          mountPath: {{ .Values.workspace.basePath }}
+        {{- if .Values.policy.enabled }}
+        - name: policy
+          mountPath: /app/policies.user
+          readOnly: true
+        {{- end }}
+        - name: kaniko-config
+          mountPath: /kaniko/.docker
+          readOnly: true
+      volumes:
+      - name: workspace
+        persistentVolumeClaim:
+          claimName: {{ include "containerization-assist.fullname" . }}-workspace
+      {{- if .Values.policy.enabled }}
+      - name: policy
+        configMap:
+          name: {{ include "containerization-assist.fullname" . }}-policy
+      {{- end }}
+      - name: kaniko-config
+        configMap:
+          name: {{ include "containerization-assist.fullname" . }}-kaniko
