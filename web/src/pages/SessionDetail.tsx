@@ -235,7 +235,11 @@ export function SessionDetail() {
       </div>
 
       {selectedArtifact && (
-        <ArtifactViewer artifact={selectedArtifact} onClose={() => setSelectedArtifact(null)} />
+        <ArtifactViewer
+          artifact={selectedArtifact}
+          policyResults={allPolicyResults}
+          onClose={() => setSelectedArtifact(null)}
+        />
       )}
     </div>
   );

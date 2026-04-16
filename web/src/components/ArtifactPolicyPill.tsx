@@ -48,16 +48,14 @@ export function ArtifactPolicyPill({ results }: Props) {
   const warned = evaluated.filter((r) => r.outcome === 'warn');
   const passed = evaluated.filter((r) => r.outcome === 'pass');
 
-  const pillClass =
+  const pillBorder =
     failed.length > 0
-      ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+      ? 'border-red-200 hover:bg-red-50'
       : warned.length > 0
-        ? 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100'
+        ? 'border-yellow-200 hover:bg-yellow-50'
         : total > 0
-          ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
-          : 'bg-zinc-50 text-zinc-500 border-zinc-200 hover:bg-zinc-100';
-
-  const label = total > 0 ? `${passed.length}/${total}` : `${skipped.length} skipped`;
+          ? 'border-green-200 hover:bg-green-50'
+          : 'border-zinc-200 hover:bg-zinc-50';
 
   return (
     <div ref={wrapperRef} className='relative inline-block'>
@@ -67,10 +65,33 @@ export function ArtifactPolicyPill({ results }: Props) {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold transition-colors ${pillClass}`}
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-white text-[10px] font-semibold transition-colors ${pillBorder}`}
         title='Policies that ran on this artifact'
       >
-        {label}
+        {passed.length > 0 && (
+          <span className='inline-flex items-center gap-0.5 text-green-700'>
+            <span>{'\u2713'}</span>
+            {passed.length}
+          </span>
+        )}
+        {failed.length > 0 && (
+          <span className='inline-flex items-center gap-0.5 text-red-700'>
+            <span>{'\u2717'}</span>
+            {failed.length}
+          </span>
+        )}
+        {warned.length > 0 && (
+          <span className='inline-flex items-center gap-0.5 text-yellow-700'>
+            <span>{'\u26a0'}</span>
+            {warned.length}
+          </span>
+        )}
+        {skipped.length > 0 && (
+          <span className='inline-flex items-center gap-0.5 text-zinc-400'>
+            <span>{'\u2298'}</span>
+            {skipped.length}
+          </span>
+        )}
       </button>
       {open && (
         <div

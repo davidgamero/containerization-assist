@@ -31,6 +31,29 @@ function getGradeColor(grade?: string): string {
   return 'text-red-600';
 }
 
+type ArtifactPolicyOutcome = 'fail' | 'warn' | 'pass' | 'skip' | 'none';
+
+function worstOutcome(results: PolicyResult[]): ArtifactPolicyOutcome {
+  if (results.length === 0) return 'none';
+  if (results.some((r) => r.outcome === 'fail')) return 'fail';
+  if (results.some((r) => r.outcome === 'warn')) return 'warn';
+  if (results.some((r) => r.outcome === 'pass')) return 'pass';
+  return 'skip';
+}
+
+function artifactOutcomeRing(outcome: ArtifactPolicyOutcome): string {
+  switch (outcome) {
+    case 'fail':
+      return 'ring-2 ring-red-400';
+    case 'warn':
+      return 'ring-2 ring-yellow-400';
+    case 'pass':
+      return 'ring-1 ring-green-400';
+    default:
+      return '';
+  }
+}
+
 const LOG_PREVIEW_LINES = 5;
 
 export type StageState = 'pending' | 'active' | 'complete' | 'failed';
@@ -264,52 +287,85 @@ export const PipelineStageCard = forwardRef<HTMLDivElement, PipelineStageCardPro
                         ? parseValidationReport(artifact.content)
                         : null;
                     const artifactResults = resultsByArtifact.get(artifact.id) ?? [];
+                    const outcome = worstOutcome(artifactResults);
+                    const topFail = artifactResults.find((r) => r.outcome === 'fail');
+                    const failCount = artifactResults.filter((r) => r.outcome === 'fail').length;
+                    const topWarn = !topFail && artifactResults.find((r) => r.outcome === 'warn');
+                    const warnCount = artifactResults.filter((r) => r.outcome === 'warn').length;
 
                     return (
                       <div
                         key={artifact.id}
-                        className={`inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-lg border text-sm font-medium ${
-                          tagColors
-                            ? `${tagColors.bg} ${tagColors.text} border-transparent`
-                            : 'bg-zinc-50 text-zinc-700 border-zinc-200'
-                        }`}
+                        className={`flex flex-col gap-1 ${artifactOutcomeRing(outcome)} rounded-lg`}
                       >
-                        <button
-                          onClick={() => onArtifactClick(artifact.id)}
-                          className='inline-flex items-center gap-1.5 hover:opacity-80 transition-opacity'
+                        <div
+                          className={`inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-lg border text-sm font-medium ${
+                            tagColors
+                              ? `${tagColors.bg} ${tagColors.text} border-transparent`
+                              : 'bg-zinc-50 text-zinc-700 border-zinc-200'
+                          }`}
                         >
-                          <span>{artifact.name}</span>
-                          <span className='text-[10px] opacity-70'>v{artifact.version}</span>
-                          {validationData && validationData.validationGrade && (
-                            <span
-                              className={`ml-1 text-xs font-semibold ${getGradeColor(validationData.validationGrade)}`}
-                            >
-                              {validationData.validationGrade}
-                            </span>
-                          )}
-                          {validationData && validationData.passed !== undefined && (
-                            <span
-                              className={`ml-0.5 text-xs ${validationData.passed ? 'text-green-600' : 'text-red-600'}`}
-                            >
-                              {validationData.passed ? '\u2713' : '\u2717'}
-                            </span>
-                          )}
-                          <svg
-                            className='w-3.5 h-3.5 opacity-40 shrink-0'
-                            fill='none'
-                            stroke='currentColor'
-                            viewBox='0 0 24 24'
+                          <button
+                            onClick={() => onArtifactClick(artifact.id)}
+                            className='inline-flex items-center gap-1.5 hover:opacity-80 transition-opacity'
                           >
-                            <path
-                              strokeLinecap='round'
-                              strokeLinejoin='round'
-                              strokeWidth={2}
-                              d='M9 5l7 7-7 7'
-                            />
-                          </svg>
-                        </button>
-                        {artifactResults.length > 0 && (
-                          <ArtifactPolicyPill results={artifactResults} />
+                            <span>{artifact.name}</span>
+                            <span className='text-[10px] opacity-70'>v{artifact.version}</span>
+                            {validationData && validationData.validationGrade && (
+                              <span
+                                className={`ml-1 text-xs font-semibold ${getGradeColor(validationData.validationGrade)}`}
+                              >
+                                {validationData.validationGrade}
+                              </span>
+                            )}
+                            {validationData && validationData.passed !== undefined && (
+                              <span
+                                className={`ml-0.5 text-xs ${validationData.passed ? 'text-green-600' : 'text-red-600'}`}
+                              >
+                                {validationData.passed ? '\u2713' : '\u2717'}
+                              </span>
+                            )}
+                            <svg
+                              className='w-3.5 h-3.5 opacity-40 shrink-0'
+                              fill='none'
+                              stroke='currentColor'
+                              viewBox='0 0 24 24'
+                            >
+                              <path
+                                strokeLinecap='round'
+                                strokeLinejoin='round'
+                                strokeWidth={2}
+                                d='M9 5l7 7-7 7'
+                              />
+                            </svg>
+                          </button>
+                          {artifactResults.length > 0 && (
+                            <ArtifactPolicyPill results={artifactResults} />
+                          )}
+                        </div>
+                        {topFail && (
+                          <div
+                            className='text-[10px] text-red-700 font-medium px-2 truncate max-w-[260px]'
+                            title={topFail.policyName}
+                          >
+                            {'\u26d4 '}
+                            {topFail.policyName}
+                            {failCount > 1 && (
+                              <span className='text-red-500 font-normal'> +{failCount - 1}</span>
+                            )}
+                          </div>
+                        )}
+                        {topWarn && (
+                          <div
+                            className='text-[10px] text-yellow-700 font-medium px-2 truncate max-w-[260px]'
+                            title={topWarn.policyName}
+                          >
+                            {'\u26a0 '}
+                            {topWarn.policyName}
+                            {warnCount > 1 && (
+                              <span className='text-yellow-600 font-normal'> +{warnCount - 1}</span>
+                            )}
+                          </div>
                         )}
                       </div>
                     );
