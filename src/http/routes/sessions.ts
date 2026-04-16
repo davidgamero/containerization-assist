@@ -357,5 +357,73 @@ export function sessionRoutes(
     return c.json({ ok: true, value: globalPolicyStore.getAll() } satisfies ApiResponse);
   });
 
+  router.post('/policies/validate', async (c) => {
+    const body = await c.req.json<{ rego?: string }>().catch(() => ({ rego: undefined }));
+    const source = body.rego;
+    if (typeof source !== 'string' || source.trim().length === 0) {
+      return c.json(
+        {
+          ok: false,
+          error: { code: 'INVALID_INPUT', message: 'rego source is required' },
+        } satisfies ApiResponse,
+        400,
+      );
+    }
+
+    const sidecarUrl = process.env.CA_POLICY_SERVICE_URL?.trim();
+    if (!sidecarUrl) {
+      return c.json(
+        {
+          ok: false,
+          error: {
+            code: 'SIDECAR_UNAVAILABLE',
+            message:
+              'Custom Rego validation requires the policy sidecar. Run via docker-compose, or set CA_POLICY_SERVICE_URL.',
+          },
+        } satisfies ApiResponse,
+        503,
+      );
+    }
+
+    try {
+      const res = await fetch(`${sidecarUrl.replace(/\/$/, '')}/v1/compile`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ rego: source }),
+      });
+      const text = await res.text();
+      if (res.ok) {
+        return c.json({ ok: true, value: { valid: true } } satisfies ApiResponse);
+      }
+      let detail: { message?: string; line?: number; col?: number; code?: string } = {};
+      try {
+        detail = JSON.parse(text) as typeof detail;
+      } catch {
+        detail = { message: text };
+      }
+      return c.json({
+        ok: true,
+        value: {
+          valid: false,
+          message: detail.message ?? 'Rego compile error',
+          line: detail.line,
+          col: detail.col,
+          code: detail.code,
+        },
+      } satisfies ApiResponse);
+    } catch (err) {
+      return c.json(
+        {
+          ok: false,
+          error: {
+            code: 'SIDECAR_ERROR',
+            message: err instanceof Error ? err.message : 'Policy sidecar request failed',
+          },
+        } satisfies ApiResponse,
+        502,
+      );
+    }
+  });
+
   return router;
 }
