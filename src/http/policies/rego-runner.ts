@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 
+import { createRegoHttpClient, probeSidecar } from './rego-client';
+
 const execFileAsync = promisify(execFile);
 
 export type RegoRunner = (rego: string, input: unknown) => Promise<unknown>;
@@ -38,6 +40,18 @@ async function probeOpa(): Promise<boolean> {
 export async function createRegoRunner(
   log: (msg: string) => void,
 ): Promise<RegoRunner | undefined> {
+  const sidecarUrl = process.env.CA_POLICY_SERVICE_URL?.trim();
+  if (sidecarUrl) {
+    const healthy = await probeSidecar(sidecarUrl);
+    if (healthy) {
+      log(`Policy sidecar reachable at ${sidecarUrl}; Rego policy evaluation enabled via HTTP.`);
+      return createRegoHttpClient({ url: sidecarUrl });
+    }
+    log(
+      `CA_POLICY_SERVICE_URL=${sidecarUrl} set but sidecar unreachable; falling back to local OPA binary probe.`,
+    );
+  }
+
   if (!state.checked) {
     state.available = await probeOpa();
     state.checked = true;
