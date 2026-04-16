@@ -206,6 +206,9 @@ async function main(): Promise<void> {
         corsOrigin: process.env.CORS_ORIGIN ?? '*',
         githubClientId: process.env.GITHUB_CLIENT_ID,
         githubClientSecret: process.env.GITHUB_CLIENT_SECRET,
+        llmApiKey: process.env.LLM_API_KEY,
+        llmBaseUrl: process.env.LLM_BASE_URL,
+        llmModel: process.env.LLM_MODEL,
       });
 
       installShutdownHandlers(app, getLogger(), !!process.env.MCP_QUIET);
