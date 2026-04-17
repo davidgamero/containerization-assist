@@ -69,11 +69,28 @@ export const POLICY_PRESETS: PolicyPreset[] = [
       id: 'no-root-user',
       name: 'No Root User',
       description: 'Require all containers to run as non-root user',
-      type: 'skill',
+      type: 'builtin',
       scope: 'session',
       target: 'dockerfile',
+      builtinId: 'no-root-user',
       directive:
         'Ensure every generated Dockerfile includes a USER directive that sets a non-root user. Do not use USER root as the final stage user.',
+      enabled: true,
+    },
+  },
+  {
+    id: 'mcr-required-images',
+    name: 'Require MCR / Azure Linux Images',
+    description: 'All base images must come from Microsoft Container Registry (mcr.microsoft.com)',
+    category: 'policy',
+    policy: {
+      id: 'mcr-required-images',
+      name: 'Require MCR / Azure Linux Images',
+      description: 'Block Dockerfiles that use base images not from Microsoft Container Registry',
+      type: 'builtin',
+      scope: 'session',
+      target: 'dockerfile',
+      builtinId: 'mcr-required-images',
       enabled: true,
     },
   },
@@ -132,4 +149,12 @@ export const POLICY_PRESETS: PolicyPreset[] = [
 
 export function getPreset(id: string): PolicyPreset | undefined {
   return POLICY_PRESETS.find((p) => p.id === id);
+}
+
+const DEFAULT_POLICY_IDS = ['no-root-user', 'mcr-required-images'];
+
+export function getDefaultSessionPolicies(): Policy[] {
+  return DEFAULT_POLICY_IDS.map((id) => getPreset(id))
+    .filter((p): p is PolicyPreset => p !== undefined)
+    .map((p) => ({ ...p.policy }));
 }

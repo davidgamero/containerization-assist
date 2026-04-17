@@ -66,6 +66,117 @@ function primaryModule(ctx: StageContext) {
   return ctx.shared.analysis?.modules?.[0];
 }
 
+function generateSyntheticDockerfile(analysis: AnalysisShape | undefined): string {
+  const mod = analysis?.modules?.[0];
+  const lang = mod?.language?.toLowerCase() ?? 'node';
+  const version = mod?.languageVersion ?? '';
+  const framework = mod?.frameworks?.[0]?.name?.toLowerCase() ?? '';
+
+  if (
+    lang === 'python' ||
+    framework === 'flask' ||
+    framework === 'django' ||
+    framework === 'fastapi'
+  ) {
+    const pyVer = version || '3.12';
+    return [
+      `FROM python:${pyVer}-slim AS builder`,
+      'WORKDIR /app',
+      'COPY requirements.txt .',
+      'RUN pip install --no-cache-dir -r requirements.txt',
+      'COPY . .',
+      '',
+      `FROM python:${pyVer}-slim`,
+      'WORKDIR /app',
+      'COPY --from=builder /app /app',
+      'EXPOSE 5000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:5000/ || exit 1',
+      'USER appuser',
+      'CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:5000"]',
+    ].join('\n');
+  }
+
+  const nodeVer = version || '22';
+  return [
+    `FROM node:${nodeVer}-slim AS builder`,
+    'WORKDIR /app',
+    'COPY package*.json ./',
+    'RUN npm ci --only=production',
+    'COPY . .',
+    '',
+    `FROM node:${nodeVer}-slim`,
+    'WORKDIR /app',
+    'COPY --from=builder /app /app',
+    'EXPOSE 3000',
+    'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/ || exit 1',
+    'USER node',
+    'CMD ["node", "index.js"]',
+  ].join('\n');
+}
+
+function generateSyntheticManifest(sessionId: string, analysis: AnalysisShape | undefined): string {
+  const mod = analysis?.modules?.[0];
+  const lang = mod?.language?.toLowerCase() ?? 'node';
+  const appName = `session-${sessionId.slice(0, 8)}`;
+  const port = lang === 'python' ? 5000 : 3000;
+  const image = `${appName}:latest`;
+
+  return [
+    'apiVersion: apps/v1',
+    'kind: Deployment',
+    'metadata:',
+    `  name: ${appName}`,
+    '  labels:',
+    `    app: ${appName}`,
+    'spec:',
+    '  replicas: 2',
+    '  selector:',
+    '    matchLabels:',
+    `      app: ${appName}`,
+    '  template:',
+    '    metadata:',
+    '      labels:',
+    `        app: ${appName}`,
+    '    spec:',
+    '      containers:',
+    `        - name: ${appName}`,
+    `          image: ${image}`,
+    '          ports:',
+    `            - containerPort: ${port}`,
+    '          resources:',
+    '            requests:',
+    '              cpu: 100m',
+    '              memory: 128Mi',
+    '            limits:',
+    '              cpu: 500m',
+    '              memory: 256Mi',
+    '          livenessProbe:',
+    '            httpGet:',
+    '              path: /',
+    `              port: ${port}`,
+    '            initialDelaySeconds: 10',
+    '            periodSeconds: 30',
+    '          readinessProbe:',
+    '            httpGet:',
+    '              path: /',
+    `              port: ${port}`,
+    '            initialDelaySeconds: 5',
+    '            periodSeconds: 10',
+    '---',
+    'apiVersion: v1',
+    'kind: Service',
+    'metadata:',
+    `  name: ${appName}`,
+    'spec:',
+    '  selector:',
+    `    app: ${appName}`,
+    '  ports:',
+    `    - port: 80`,
+    `      targetPort: ${port}`,
+    '  type: ClusterIP',
+  ].join('\n');
+}
+
 const analyzingHandler: StageHandler = async (ctx) => {
   ctx.log('Analyzing repository structure...');
   await ctx.demoDelay(1200);
@@ -192,13 +303,18 @@ const generateDockerfileHandler: StageHandler = async (ctx) => {
       );
     }
   } else {
-    ctx.store.addArtifact(
+    ctx.log('Generating Dockerfile from plan (demo mode)...');
+    const dockerfileContent = generateSyntheticDockerfile(ctx.shared.analysis);
+    const dockerfileArtifact = ctx.store.addArtifact(
       ctx.sessionId,
       SESSION_PHASE.GENERATING_DOCKERFILE,
-      'dockerfile-plan-summary.txt',
-      `Dockerfile plan generated. Action: ${plan?.nextAction?.action ?? 'create-files'}`,
-      'text/plain',
+      'Dockerfile',
+      dockerfileContent,
+      'text/x-dockerfile',
+      'dockerfile',
     );
+
+    await evaluatePolicyFor(ctx, dockerfileArtifact, SESSION_PHASE.GENERATING_DOCKERFILE);
   }
 
   if (skillPolicies.length > 0) {
@@ -230,7 +346,7 @@ const buildingHandler: StageHandler = async (ctx) => {
 
   if (!result.ok) {
     ctx.log(`Build context preparation note: ${result.error}`);
-    ctx.store.addArtifact(
+    const errorArtifact = ctx.store.addArtifact(
       ctx.sessionId,
       SESSION_PHASE.BUILDING,
       'build-context-error.json',
@@ -242,9 +358,10 @@ const buildingHandler: StageHandler = async (ctx) => {
       'application/json',
       'context',
     );
+    await evaluatePolicyFor(ctx, errorArtifact, SESSION_PHASE.BUILDING);
   } else {
     ctx.log('Build context prepared successfully');
-    ctx.store.addArtifact(
+    const buildArtifact = ctx.store.addArtifact(
       ctx.sessionId,
       SESSION_PHASE.BUILDING,
       'build-context.json',
@@ -252,9 +369,49 @@ const buildingHandler: StageHandler = async (ctx) => {
       'application/json',
       'context',
     );
+    await evaluatePolicyFor(ctx, buildArtifact, SESSION_PHASE.BUILDING);
   }
 
   await ctx.demoDelay(800);
+  return { ok: true };
+};
+
+const scanningHandler: StageHandler = async (ctx) => {
+  ctx.log('Scanning image for vulnerabilities...');
+  await ctx.demoDelay(1000);
+
+  const imageRef = `session-${ctx.sessionId.slice(0, 8)}:latest`;
+  const result = await ctx.runtime.execute(
+    'scan-image' as never,
+    { imageId: imageRef } as never,
+    ctx.metadata,
+  );
+
+  if (!result.ok) {
+    ctx.log(`Scan skipped: ${result.error}`);
+    const scanArtifact = ctx.store.addArtifact(
+      ctx.sessionId,
+      SESSION_PHASE.SCANNING,
+      'scan-report.json',
+      JSON.stringify({ skipped: true, reason: result.error }, null, 2),
+      'application/json',
+      'validation-report',
+    );
+    await evaluatePolicyFor(ctx, scanArtifact, SESSION_PHASE.SCANNING);
+  } else {
+    ctx.log('Scan complete');
+    const scanArtifact = ctx.store.addArtifact(
+      ctx.sessionId,
+      SESSION_PHASE.SCANNING,
+      'scan-report.json',
+      JSON.stringify(result.value, null, 2),
+      'application/json',
+      'validation-report',
+    );
+    await evaluatePolicyFor(ctx, scanArtifact, SESSION_PHASE.SCANNING);
+  }
+
+  await ctx.demoDelay(600);
   return { ok: true };
 };
 
@@ -326,13 +483,18 @@ const generateManifestsHandler: StageHandler = async (ctx) => {
       );
     }
   } else {
-    ctx.store.addArtifact(
+    ctx.log('Generating Kubernetes manifests from plan (demo mode)...');
+    const manifestContent = generateSyntheticManifest(ctx.sessionId, ctx.shared.analysis);
+    const manifestArtifact = ctx.store.addArtifact(
       ctx.sessionId,
       SESSION_PHASE.GENERATING_MANIFESTS,
-      'manifest-plan-summary.txt',
-      'Kubernetes manifest plan generated. Create deployment, service, and optional ingress.',
-      'text/plain',
+      'k8s-manifests.yaml',
+      manifestContent,
+      'text/yaml',
+      'manifest',
     );
+
+    await evaluatePolicyFor(ctx, manifestArtifact, SESSION_PHASE.GENERATING_MANIFESTS);
   }
 
   const regoPolicies = ctx.enabledPolicies.filter((p) => p.type === 'rego');
@@ -361,6 +523,7 @@ export const STAGE_HANDLERS: Partial<Record<SessionPhase, StageHandler>> = {
   [SESSION_PHASE.ANALYZING]: analyzingHandler,
   [SESSION_PHASE.GENERATING_DOCKERFILE]: generateDockerfileHandler,
   [SESSION_PHASE.BUILDING]: buildingHandler,
+  [SESSION_PHASE.SCANNING]: scanningHandler,
   [SESSION_PHASE.GENERATING_MANIFESTS]: generateManifestsHandler,
 };
 

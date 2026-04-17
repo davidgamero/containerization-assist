@@ -89,23 +89,21 @@ function StagePill({
     <button
       onClick={onClick}
       title={stage.description}
-      className={`group flex flex-col items-start gap-0.5 px-3 py-1.5 rounded-lg border transition-all hover:brightness-95 shrink-0 ${pillClasses(
+      className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all hover:brightness-95 shrink-0 ${pillClasses(
         state,
       )}`}
     >
-      <div className='flex items-center gap-1.5'>
-        <StageIcon state={state} />
-        <span className={`text-xs font-semibold ${isActive ? 'animate-pulse' : ''}`}>
-          {stage.shortLabel}
-        </span>
-        {policySummary.fail > 0 && (
-          <span className='w-1.5 h-1.5 rounded-full bg-red-500' title='Policy fails' />
-        )}
-        {policySummary.fail === 0 && policySummary.warn > 0 && (
-          <span className='w-1.5 h-1.5 rounded-full bg-yellow-500' title='Policy warns' />
-        )}
-      </div>
-      {duration && <span className='text-[10px] font-mono opacity-70 ml-4'>{duration}</span>}
+      <StageIcon state={state} />
+      <span className={`text-xs font-semibold ${isActive ? 'animate-pulse' : ''}`}>
+        {stage.shortLabel}
+      </span>
+      {policySummary.fail > 0 && (
+        <span className='w-1.5 h-1.5 rounded-full bg-red-500' title='Policy fails' />
+      )}
+      {policySummary.fail === 0 && policySummary.warn > 0 && (
+        <span className='w-1.5 h-1.5 rounded-full bg-yellow-500' title='Policy warns' />
+      )}
+      {duration && <span className='text-[10px] font-mono opacity-70'>{duration}</span>}
     </button>
   );
 }

@@ -6,7 +6,7 @@ import type { SessionStore } from '../sessions/store';
 import type { WorkspaceManager } from '../workspace/manager';
 import { runBuildWorkflow } from '../workflows/build-workflow';
 import { EXAMPLE_APPS, getExample } from '../examples/catalog';
-import { POLICY_PRESETS } from '../policies/presets';
+import { POLICY_PRESETS, getDefaultSessionPolicies } from '../policies/presets';
 import type { GlobalPolicyStore } from '../policies/global-store';
 import type { RegoRunner } from '../policies/rego-runner';
 
@@ -139,7 +139,7 @@ export function sessionRoutes(
     try {
       const workspace = await workspaceManager.createFromZipStream(stream, filename);
       const initialPolicies: SessionPolicies = {
-        policies: globalPolicyStore.mergeWithSession([]),
+        policies: globalPolicyStore.mergeWithSession(getDefaultSessionPolicies()),
         results: [],
       };
       const session = sessionStore.create(
@@ -201,7 +201,7 @@ export function sessionRoutes(
     try {
       const workspace = await workspaceManager.createFromGitHub(repoUrl, token, ref ?? 'HEAD');
       const initialPolicies: SessionPolicies = {
-        policies: globalPolicyStore.mergeWithSession([]),
+        policies: globalPolicyStore.mergeWithSession(getDefaultSessionPolicies()),
         results: [],
       };
       const session = sessionStore.create(
@@ -272,7 +272,7 @@ export function sessionRoutes(
     try {
       const workspace = await workspaceManager.createFromExample(example.files);
       const initialPolicies: SessionPolicies = {
-        policies: globalPolicyStore.mergeWithSession([]),
+        policies: globalPolicyStore.mergeWithSession(getDefaultSessionPolicies()),
         results: [],
       };
       const session = sessionStore.create(

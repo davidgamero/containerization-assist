@@ -375,6 +375,11 @@ export const PipelineStageCard = forwardRef<HTMLDivElement, PipelineStageCardPro
             )}
 
             {policyResults.length > 0 && <PolicyResultsPanel results={policyResults} />}
+            {policyResults.length === 0 && artifacts.length > 0 && (
+              <div className='text-xs text-zinc-400 italic'>
+                No applicable policies for this stage
+              </div>
+            )}
           </div>
         )}
       </div>
