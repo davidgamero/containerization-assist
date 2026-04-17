@@ -25,7 +25,6 @@ import type { VerifyDeploymentResult } from '@/tools/verify-deploy/tool';
 import type { DockerfileFixPlan } from '@/tools/fix-dockerfile/schema';
 import type { ManifestPlan } from '@/tools/generate-k8s-manifests/schema';
 import type { PushImageResult } from '@/tools/push-image/tool';
-import type { TagImageResult } from '@/tools/tag-image/tool';
 import type { PrepareClusterResult } from '@/tools/prepare-cluster/tool';
 import type { PingResult, ServerStatusResult } from '@/tools/ops/tool';
 import { formatDuration, formatVulnerabilities, pluralize } from '@/lib/summary-helpers';
@@ -953,67 +952,11 @@ export function formatPushImageNarrative(
 }
 
 /**
- * Format tag-image result as natural language narrative
- *
- * @param result - Image tagging result
- * @param chainHintsMode - Whether to include "Next Steps" section (default: 'enabled')
- * @returns Formatted narrative with tags applied
- *
- * @description
- * Produces a simple tagging report including:
- * - Success status
- * - Image identifier
- * - Tags applied (list)
- * - Standard next steps with versioning guidance (when chainHintsMode is 'enabled')
- */
-export function formatTagImageNarrative(
-  result: TagImageResult,
-  chainHintsMode: ChainHintsMode = CHAINHINTSMODE.ENABLED,
-): string {
-  const parts: string[] = [];
-
-  // Header
-  parts.push('✅ Image Tagged\n');
-
-  // Image info
-  const shortImageId = result.imageId.startsWith('sha256:')
-    ? `${result.imageId.substring(0, 19)}...`
-    : result.imageId;
-  parts.push(`**Image ID:** ${shortImageId}`);
-
-  // Tags applied
-  parts.push(`\n**Tags Applied:** (${result.tags.length})`);
-  result.tags.forEach((tag) => {
-    parts.push(`  • ${tag}`);
-  });
-
-  // Next steps (only if chainHintsMode is enabled)
-  if (chainHintsMode === CHAINHINTSMODE.ENABLED) {
-    parts.push(`\n**Next Steps:**`);
-    parts.push('  → Use push-image to push tagged image to registry');
-    parts.push('  → Tags can be used in Kubernetes manifests');
-    if (result.tags.some((t) => t.includes('latest'))) {
-      parts.push('  → Consider using semantic versioning instead of "latest"');
-    }
-  }
-
-  return parts.join('\n');
-}
-
-/**
  * Format prepare-cluster result as natural language narrative
  *
- * @param result - Cluster preparation result
- * @param chainHintsMode - Whether to include "Next Steps" section (default: 'enabled')
- * @returns Formatted narrative with setup details
- *
- * @description
- * Produces a cluster preparation report including:
- * - Cluster preparation status
- * - Namespace and connectivity checks
- * - Resources and checks performed
- * - Warnings if any
- * - Context-aware next steps (when chainHintsMode is 'enabled')
+ * @param result - The prepare-cluster context result
+ * @param chainHintsMode - Whether to include next step suggestions
+ * @returns Formatted narrative with cluster state and setup steps
  */
 export function formatPrepareClusterNarrative(
   result: PrepareClusterResult,
@@ -1021,73 +964,81 @@ export function formatPrepareClusterNarrative(
 ): string {
   const parts: string[] = [];
 
-  // Header
   const icon = result.success ? '✅' : '❌';
-  parts.push(`${icon} Cluster Preparation ${result.success ? 'Complete' : 'Failed'}\n`);
+  parts.push(`${icon} Cluster Inspection ${result.success ? 'Complete' : 'Failed'}\n`);
 
-  // Cluster and namespace info
-  parts.push(`**Cluster:** ${result.cluster}`);
-  parts.push(`**Namespace:** ${result.namespace}`);
-  parts.push(`**Ready:** ${result.clusterReady ? 'Yes' : 'No'}`);
+  parts.push(`**Summary:** ${result.summary}`);
 
-  // Checks performed
-  parts.push(`\n**Checks Performed:**`);
-  const checks = result.checks;
-  Object.entries(checks).forEach(([check, passed]) => {
-    if (typeof passed === 'boolean') {
-      const checkIcon = passed ? '✅' : '❌';
-      const checkName = check
-        .replace(/([A-Z])/g, ' $1')
-        .replace(/^./, (str) => str.toUpperCase())
-        .trim();
-      parts.push(`  ${checkIcon} ${checkName}`);
+  const state = result.currentState;
+  parts.push(`\n**Cluster Type:** ${state.clusterType}`);
+  parts.push(`**Connectivity:** ${state.connectivity ? 'Yes' : 'No'}`);
+  parts.push(`**Permissions:** ${state.permissions ? 'Yes' : 'No'}`);
+  parts.push(`**Namespace Exists:** ${state.namespaceExists ? 'Yes' : 'No'}`);
+
+  if (state.kindInstalled !== null) {
+    parts.push(`**Kind Installed:** ${state.kindInstalled ? 'Yes' : 'No'}`);
+  }
+  if (state.kindClusterExists !== null) {
+    parts.push(`**Kind Cluster Exists:** ${state.kindClusterExists ? 'Yes' : 'No'}`);
+  }
+  if (state.registryExists !== null) {
+    parts.push(`**Registry Exists:** ${state.registryExists ? 'Yes' : 'No'}`);
+    if (state.registryPort !== null) {
+      parts.push(`**Registry Port:** ${state.registryPort}`);
     }
-  });
+    if (state.registryHealthy !== null) {
+      const healthIcon = state.registryHealthy ? '✅' : '⚠️';
+      parts.push(
+        `**Registry Health:** ${healthIcon} ${state.registryHealthy ? 'Healthy' : 'Unhealthy'}`,
+      );
+    }
+  }
 
-  // Warnings if any
-  if (result.warnings && result.warnings.length > 0) {
+  const pendingSteps = result.setupSteps.filter((s) => !s.alreadyDone);
+  const doneSteps = result.setupSteps.filter((s) => s.alreadyDone);
+
+  if (pendingSteps.length > 0) {
+    parts.push(`\n**Setup Steps Needed:** (${pendingSteps.length})`);
+    pendingSteps.forEach((step, i) => {
+      parts.push(`  ${i + 1}. ${step.description}`);
+      step.commands.forEach((cmd) => {
+        parts.push(`     \`${cmd}\``);
+      });
+    });
+  }
+
+  if (doneSteps.length > 0) {
+    parts.push(`\n**Already Done:** (${doneSteps.length})`);
+    doneSteps.forEach((step) => {
+      parts.push(`  ✅ ${step.description}`);
+    });
+  }
+
+  if (result.validationSteps.length > 0) {
+    parts.push(`\n**Validation Steps:** (${result.validationSteps.length})`);
+    result.validationSteps.forEach((step, i) => {
+      parts.push(`  ${i + 1}. ${step.description}: \`${step.command}\``);
+    });
+  }
+
+  if (result.warnings.length > 0) {
     parts.push(`\n**Warnings:** (${result.warnings.length})`);
-    result.warnings.slice(0, 3).forEach((warning) => {
+    result.warnings.slice(0, 5).forEach((warning) => {
       parts.push(`  ⚠ ${warning}`);
     });
-    if (result.warnings.length > 3) {
-      parts.push(`  ... and ${result.warnings.length - 3} more`);
+    if (result.warnings.length > 5) {
+      parts.push(`  ... and ${result.warnings.length - 5} more`);
     }
   }
 
-  // Local registry if created
-  if (result.localRegistryUrl) {
-    parts.push(`\n**Local Registry:** ${result.localRegistryUrl}`);
-  }
-
-  // Detailed registry information if available
-  if (result.localRegistry) {
-    parts.push(`\n**Local Registry Details:**`);
-    const healthIcon = result.localRegistry.healthy ? '✅' : '⚠️';
-    const reachableIcon = result.localRegistry.reachableFromCluster ? '✅' : '⚠️';
-    parts.push(`  External URL: ${result.localRegistry.externalUrl}`);
-    parts.push(`  Internal Endpoint: ${result.localRegistry.internalEndpoint}`);
-    parts.push(`  Container Name: ${result.localRegistry.containerName}`);
-    parts.push(
-      `  Health Status: ${healthIcon} ${result.localRegistry.healthy ? 'Healthy' : 'Unhealthy'}`,
-    );
-    parts.push(
-      `  Reachable from Cluster: ${reachableIcon} ${result.localRegistry.reachableFromCluster ? 'Yes' : 'No'}`,
-    );
-  }
-
-  // Next steps (only if chainHintsMode is enabled)
   if (chainHintsMode === CHAINHINTSMODE.ENABLED) {
     parts.push(`\n**Next Steps:**`);
-    if (result.success && result.clusterReady) {
-      parts.push('  → Cluster is ready for deployment');
-      parts.push('  → Use kubectl apply to deploy your application');
-      parts.push('  → Resources will be deployed to the prepared namespace');
-    } else {
-      parts.push('  → Check cluster connectivity');
-      parts.push('  → Verify RBAC permissions');
-      parts.push('  → Review error logs for details');
+    if (pendingSteps.length > 0) {
+      parts.push('  → Execute the setup steps above in order (skip already-done steps)');
+      parts.push('  → Run each validation step to confirm the cluster is ready');
     }
+    parts.push('  → Use kubectl apply to deploy your application');
+    parts.push('  → Call verify-deploy to check deployment status');
   }
 
   return parts.join('\n');

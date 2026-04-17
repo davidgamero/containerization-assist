@@ -3,17 +3,18 @@ import { TOOL_NAME, type IToolDefinition } from '../shared/toolDefinition';
 
 export const prepareClusterToolDefinition = {
   name: TOOL_NAME.PREPARE_CLUSTER,
-  description: 'Prepare Kubernetes cluster for deployment',
+  description:
+    'Inspect Kubernetes cluster state and return setup steps and validation commands for the agent to execute. Does not take direct action.',
   category: 'kubernetes' as const,
-  version: '2.0.0',
+  version: '3.0.0',
   schema: prepareClusterSchema,
   metadata: {
     knowledgeEnhanced: false,
   },
   chainHints: {
     success:
-      'Cluster preparation successful. Next: Use `kubectl apply -f <manifest-folder>` to deploy your manifests to the cluster, then call verify-deploy to check deployment status.',
+      'Cluster inspection complete. Execute the returned setupSteps (skipping alreadyDone ones), then run each validationStep to confirm the cluster is ready. Finally, use `kubectl apply -f <manifest-folder>` to deploy, then call verify-deploy.',
     failure:
-      'Cluster preparation found issues. Check connectivity, permissions, and namespace configuration.',
+      'Cluster inspection found issues. Check connectivity, permissions, and namespace configuration.',
   },
 } satisfies IToolDefinition;

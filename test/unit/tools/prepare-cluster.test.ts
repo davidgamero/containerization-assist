@@ -1,17 +1,9 @@
 /**
- * Unit Tests: Prepare Cluster Tool
- * Tests the prepare cluster tool functionality with mock Kubernetes client
+ * Unit Tests: Prepare Cluster Tool (Context-Only)
+ * Tests that the tool inspects cluster state and returns correct setup/validation steps
  */
 
 import { jest } from '@jest/globals';
-
-// Result Type Helpers for Testing
-function createSuccessResult<T>(value: T) {
-  return {
-    ok: true as const,
-    value,
-  };
-}
 
 function createMockLogger() {
   return {
@@ -25,14 +17,13 @@ function createMockLogger() {
   } as any;
 }
 
-// Mock lib modules
 const mockK8sClient = {
-  ping: jest.fn(),
-  namespaceExists: jest.fn(),
-  ensureNamespace: jest.fn(),
-  applyManifest: jest.fn(),
-  checkIngressController: jest.fn(),
-  checkPermissions: jest.fn(),
+  ping: jest.fn<() => Promise<boolean>>(),
+  namespaceExists: jest.fn<() => Promise<boolean>>(),
+  ensureNamespace: jest.fn<() => Promise<any>>(),
+  applyManifest: jest.fn<() => Promise<any>>(),
+  checkIngressController: jest.fn<() => Promise<boolean>>(),
+  checkPermissions: jest.fn<() => Promise<boolean>>(),
 };
 
 const mockTimer = {
@@ -40,16 +31,9 @@ const mockTimer = {
   error: jest.fn(),
 };
 
-
 jest.mock('@/infra/kubernetes/client', () => ({
   createKubernetesClient: jest.fn(() => mockK8sClient),
 }));
-
-// Mock MCP helper modules
-
-// Import these after mocks are set up
-import { prepareCluster } from '../../../src/tools/prepare-cluster/tool';
-import type { PrepareClusterParams } from '../../../src/tools/prepare-cluster/schema';
 
 jest.mock('@/lib/logger', () => ({
   createTimer: jest.fn(() => mockTimer),
@@ -66,7 +50,7 @@ jest.mock('@/lib/tool-helpers', () => ({
 }));
 
 jest.mock('@/lib/errors', () => ({
-  extractErrorMessage: jest.fn((error) => error.message || String(error)),
+  extractErrorMessage: jest.fn((error: any) => error.message || String(error)),
   ERROR_MESSAGES: {},
 }));
 
@@ -78,843 +62,482 @@ jest.mock('@/lib/platform', () => ({
   isPlatformCompatible: jest.fn(() => true),
 }));
 
-jest.mock('@/lib/file-utils', () => ({
-  downloadFile: jest.fn(),
-  makeExecutable: jest.fn(),
-  createTempFile: jest.fn(() => Promise.resolve('/tmp/test-config.yaml')),
-  deleteTempFile: jest.fn(),
-}));
-
 jest.mock('@/lib/port-utils', () => ({
   findRegistryPort: jest.fn(() => Promise.resolve(6000)),
   isPortAvailable: jest.fn(() => Promise.resolve(true)),
 }));
 
+let execAsyncMock: jest.Mock<(...args: any[]) => any>;
+
 jest.mock('node:child_process', () => ({
-  exec: jest.fn((cmd, callback) => {
-    // Mock kubectl commands for platform detection
-    if (callback) {
-      callback(null, { stdout: 'amd64', stderr: '' }, '');
-    }
-  }),
+  exec: jest.fn(),
 }));
 
-// Use closure pattern to store mock reference
 jest.mock('node:util', () => {
-  let execAsyncMock: any = null;
-
+  execAsyncMock = jest.fn<(...args: any[]) => any>(async () => ({ stdout: '', stderr: '' }));
   return {
-    promisify: jest.fn(() => {
-      // Create mock on first call
-      if (!execAsyncMock) {
-        execAsyncMock = jest.fn(async (cmd: string) => {
-          if (typeof cmd === 'string') {
-            if (cmd.includes('kubectl get nodes') && cmd.includes('architecture')) {
-              return { stdout: 'amd64', stderr: '' };
-            }
-            if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem')) {
-              return { stdout: 'linux', stderr: '' };
-            }
-            if (cmd.includes('kind get clusters')) {
-              return { stdout: '', stderr: '' };
-            }
-            if (cmd.includes('kind version')) {
-              return { stdout: 'kind v0.20.0 go1.20.5 linux/amd64', stderr: '' };
-            }
-            if (cmd.includes('docker ps') && cmd.includes('ca-registry')) {
-              return { stdout: '', stderr: '' };
-            }
-            if (cmd.includes('docker network ls')) {
-              return { stdout: 'kind\n', stderr: '' };
-            }
-            if (cmd.includes('kubectl get nodes --no-headers')) {
-              return { stdout: 'node1   Ready   control-plane   1m   v1.27.3\n', stderr: '' };
-            }
-            if (cmd.includes('kubectl run') && cmd.includes('nslookup')) {
-              return { stdout: 'Address 1: 172.18.0.3 ca-registry\nDNS_SUCCESS', stderr: '' };
-            }
-            if (cmd.includes('kubectl run') && cmd.includes('curl')) {
-              return { stdout: 'success', stderr: '' };
-            }
-            // Handle curl health checks - MUST come after kubectl run checks to avoid false matches
-            if (cmd.includes('curl') && cmd.includes('/v2/')) {
-              return { stdout: '{}', stderr: '' };
-            }
-            // Handle kubectl delete pod for test cleanup
-            if (cmd.includes('kubectl delete pod')) {
-              return { stdout: '', stderr: '' };
-            }
-            // Handle docker network connect
-            if (cmd.includes('docker network connect')) {
-              return { stdout: '', stderr: '' };
-            }
-            if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
-              return {
-                stdout: `
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:6000"]
-  endpoint = ["http://ca-registry:5000"]
-`,
-                stderr: '',
-              };
-            }
-            if (cmd.includes('docker inspect ca-registry')) {
-              if (cmd.includes('State.Status')) {
-                return { stdout: 'running', stderr: '' };
-              }
-              if (cmd.includes('NetworkSettings.Networks')) {
-                return { stdout: 'bridge kind', stderr: '' };
-              }
-              if (cmd.includes('NetworkSettings.Ports')) {
-                return { stdout: '6000', stderr: '' };
-              }
-            }
-          }
-          return { stdout: '', stderr: '' };
-        });
-        // Store reference globally so tests can access it
-        (global as any).mockExecAsync = execAsyncMock;
-      }
-      return execAsyncMock;
-    }),
+    promisify: jest.fn(() => execAsyncMock),
   };
 });
 
+import { prepareCluster } from '../../../src/tools/prepare-cluster/tool';
+import type { PrepareClusterParams } from '../../../src/tools/prepare-cluster/schema';
+
 function createMockToolContext() {
-  return {
-    logger: createMockLogger(),
-  } as any;
+  return { logger: createMockLogger() } as any;
 }
 
-describe('prepareCluster', () => {
-  let config: PrepareClusterParams;
-
-  beforeEach(() => {
-    config = {
-      namespace: 'test-namespace',
-      environment: 'production',
-      targetPlatform: 'linux/amd64',
-    };
-
-    // Reset all mocks
-    jest.clearAllMocks();
-    mockK8sClient.ensureNamespace.mockResolvedValue({ success: true });
-  });
-
-  describe('Successful cluster preparation', () => {
-    beforeEach(() => {
-      // Mock successful connectivity
-      mockK8sClient.ping.mockResolvedValue(true);
-      mockK8sClient.namespaceExists.mockResolvedValue(false);
-      mockK8sClient.applyManifest.mockResolvedValue({ success: true });
-      mockK8sClient.checkPermissions.mockResolvedValue(true);
-      mockK8sClient.checkIngressController.mockResolvedValue(true);
-    });
-
-    it('should handle existing namespace', async () => {
-      mockK8sClient.namespaceExists.mockResolvedValue(true);
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(config, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.checks.namespaceExists).toBe(true);
-      }
-      // Should not attempt to create namespace
-      expect(mockK8sClient.applyManifest).not.toHaveBeenCalledWith(
-        expect.objectContaining({ kind: 'Namespace' }),
-        undefined,
-      );
-    });
-  });
-
-  describe('Error handling', () => {
-
-    it('should return error when cluster is not reachable', async () => {
-      mockK8sClient.ping.mockResolvedValue(false);
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(config, mockContext);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe('Cannot connect to Kubernetes cluster');
-      }
-    });
-
-    it('should return error when namespace creation fails', async () => {
-      mockK8sClient.ping.mockResolvedValue(true);
-      mockK8sClient.namespaceExists.mockResolvedValue(false);
-      mockK8sClient.ensureNamespace.mockResolvedValue({
-        success: false,
-        error: 'Failed to create namespace',
-      });
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(config, mockContext);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toContain('Failed to create namespace');
-      }
-    });
-
-    it('should handle Kubernetes client errors', async () => {
-      mockK8sClient.ping.mockRejectedValue(new Error('Connection timeout'));
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(config, mockContext);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe('Cannot connect to Kubernetes cluster');
-      }
-    });
-  });
-
-  describe('Optional features', () => {
-    beforeEach(() => {
-      mockK8sClient.ping.mockResolvedValue(true);
-      mockK8sClient.namespaceExists.mockResolvedValue(true);
-      mockK8sClient.checkPermissions.mockResolvedValue(true);
-    });
-
-    it('should setup RBAC when requested', async () => {
-      mockK8sClient.applyManifest.mockResolvedValue({ success: true });
-
-      // In production environment, RBAC is automatically setup
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(config, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.checks.rbacConfigured).toBe(true);
-      }
-    });
-
-    it('should check ingress controller when requested', async () => {
-      mockK8sClient.checkIngressController.mockResolvedValue(true);
-
-      // In production, checkRequirements is true, so ingress is checked
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(config, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.checks.ingressController).toBe(true);
-      }
-    });
-  });
-
-  describe('Development environment with local registry', () => {
-    let devConfig: PrepareClusterParams;
-
-    beforeEach(() => {
-      devConfig = {
-        namespace: 'default',
-        environment: 'development',
-        targetPlatform: 'linux/amd64',
+function mockExecForKindExists() {
+  (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+    if (cmd.includes('kind version')) return { stdout: 'kind v0.20.0', stderr: '' };
+    if (cmd.includes('kind get clusters'))
+      return { stdout: 'containerization-assist\n', stderr: '' };
+    if (cmd.includes('docker ps -a') && cmd.includes('ca-registry'))
+      return { stdout: 'ca-registry\n', stderr: '' };
+    if (cmd.includes('docker ps') && cmd.includes('ca-registry') && !cmd.includes('-a'))
+      return { stdout: 'ca-registry\n', stderr: '' };
+    if (cmd.includes('docker inspect ca-registry') && cmd.includes('NetworkSettings.Ports'))
+      return { stdout: '6000', stderr: '' };
+    if (cmd.includes('docker inspect ca-registry') && cmd.includes('NetworkSettings.Networks'))
+      return { stdout: 'bridge kind', stderr: '' };
+    if (cmd.includes('docker inspect ca-registry') && cmd.includes('State.Status'))
+      return { stdout: 'running', stderr: '' };
+    if (cmd.includes('curl') && cmd.includes('/v2/')) return { stdout: '{}', stderr: '' };
+    if (cmd.includes('docker network ls')) return { stdout: 'kind\n', stderr: '' };
+    if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
+      return {
+        stdout: `[plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:6000"]\n  endpoint = ["http://ca-registry:5000"]`,
+        stderr: '',
       };
+    }
+    if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
+      return { stdout: 'amd64', stderr: '' };
+    if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem'))
+      return { stdout: 'linux', stderr: '' };
+    return { stdout: '', stderr: '' };
+  });
+}
 
-      // Mock successful cluster operations
-      mockK8sClient.ping.mockResolvedValue(true);
-      mockK8sClient.namespaceExists.mockResolvedValue(true);
-      mockK8sClient.checkPermissions.mockResolvedValue(true);
-      mockK8sClient.applyManifest.mockResolvedValue({ ok: true });
+function mockExecForKindNotExists() {
+  (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+    if (cmd.includes('kind version')) return { stdout: 'kind v0.20.0', stderr: '' };
+    if (cmd.includes('kind get clusters')) return { stdout: '', stderr: '' };
+    if (cmd.includes('docker ps')) return { stdout: '', stderr: '' };
+    if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
+      return { stdout: 'amd64', stderr: '' };
+    if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem'))
+      return { stdout: 'linux', stderr: '' };
+    return { stdout: '', stderr: '' };
+  });
+}
 
-      // Reset execAsync mock to default behavior
-      (global as any).mockExecAsync.mockImplementation(async (cmd: string) => {
-        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture')) {
-          return { stdout: 'amd64', stderr: '' };
-        }
-        if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem')) {
-          return { stdout: 'linux', stderr: '' };
-        }
-        if (cmd.includes('kind get clusters')) {
-          return { stdout: 'containerization-assist\n', stderr: '' };
-        }
-        if (cmd.includes('kind version')) {
-          return { stdout: 'kind v0.20.0 go1.20.5 linux/amd64', stderr: '' };
-        }
-        if (cmd.includes('docker ps -a') && cmd.includes('ca-registry')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('docker ps') && cmd.includes('ca-registry') && !cmd.includes('-a')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('docker network ls')) {
-          return { stdout: 'kind\n', stderr: '' };
-        }
-        if (cmd.includes('kubectl get nodes --no-headers')) {
-          return { stdout: 'node1   Ready   control-plane   1m   v1.27.3\n', stderr: '' };
-        }
-        // Handle DNS resolution test (matches registry-dns-test-<timestamp>)
-        if (cmd.includes('kubectl run') && cmd.includes('nslookup')) {
-          return { stdout: 'Address 1: 172.18.0.3 ca-registry\nDNS_SUCCESS', stderr: '' };
-        }
-        // Handle registry reachability test with curl (matches registry-test-<timestamp>)
-        if (cmd.includes('kubectl run') && cmd.includes('curl')) {
-          return { stdout: 'success', stderr: '' };
-        }
-        // Handle curl health checks - MUST come after kubectl run checks to avoid false matches
-        if (cmd.includes('curl') && cmd.includes('/v2/')) {
-          return { stdout: '{}', stderr: '' };
-        }
-        // Handle kubectl delete pod for test cleanup
-        if (cmd.includes('kubectl delete pod')) {
-          return { stdout: '', stderr: '' };
-        }
-        // Handle docker network connect
-        if (cmd.includes('docker network connect')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
-          return {
-            stdout: `
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:6000"]
-  endpoint = ["http://ca-registry:5000"]
-`,
-            stderr: '',
-          };
-        }
-        if (cmd.includes('docker inspect ca-registry')) {
-          if (cmd.includes('State.Status')) {
-            return { stdout: 'running', stderr: '' };
-          }
-          if (cmd.includes('NetworkSettings.Networks')) {
-            return { stdout: 'bridge kind', stderr: '' };
-          }
-          if (cmd.includes('NetworkSettings.Ports')) {
-            return { stdout: '6000', stderr: '' };
-          }
-        }
-        if (cmd.includes('kind export kubeconfig')) {
-          return { stdout: '', stderr: '' };
-        }
-        return { stdout: '', stderr: '' };
-      });
-    });
-
-    it('should setup kind cluster and local registry in development environment', async () => {
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(devConfig, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.checks.kindInstalled).toBe(true);
-        expect(result.value.checks.kindClusterCreated).toBe(true);
-        expect(result.value.checks.localRegistryCreated).toBe(true);
-        expect(result.value.localRegistryUrl).toBe('localhost:6000');
-        expect(result.value.localRegistry).toBeDefined();
-        if (result.value.localRegistry) {
-          expect(result.value.localRegistry.externalUrl).toBe('localhost:6000');
-          expect(result.value.localRegistry.internalEndpoint).toBe('ca-registry:5000');
-          expect(result.value.localRegistry.containerName).toBe('ca-registry');
-          expect(result.value.localRegistry.healthy).toBe(true);
-          expect(result.value.localRegistry.reachableFromCluster).toBe(true);
-        }
-      }
-    });
-
-    it('should validate registry DNS resolution', async () => {
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(devConfig, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        // Should not have DNS warnings when DNS resolution succeeds
-        expect(result.value.warnings?.some(w => w.includes('DNS resolution failed'))).toBeFalsy();
-      }
-    });
-
-    it('should warn when registry DNS resolution fails', async () => {
-      // Mock DNS resolution failure
-      (global as any).mockExecAsync.mockImplementation(async (cmd: string) => {
-        if (cmd.includes('kubectl run') && cmd.includes('nslookup')) {
-          return { stdout: 'DNS_FAILED', stderr: '' };
-        }
-        // Keep other mocks working
-        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture')) {
-          return { stdout: 'amd64', stderr: '' };
-        }
-        if (cmd.includes('kind get clusters')) {
-          return { stdout: 'containerization-assist\n', stderr: '' };
-        }
-        if (cmd.includes('docker ps') && cmd.includes('ca-registry')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('kubectl run') && cmd.includes('curl')) {
-          return { stdout: 'success', stderr: '' };
-        }
-        // Handle curl health checks - MUST come after kubectl run checks to avoid false matches
-        if (cmd.includes('curl') && cmd.includes('/v2/')) {
-          return { stdout: '{}', stderr: '' };
-        }
-        // Handle kubectl delete pod for test cleanup
-        if (cmd.includes('kubectl delete pod')) {
-          return { stdout: '', stderr: '' };
-        }
-        // Handle docker network connect
-        if (cmd.includes('docker network connect')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker inspect ca-registry') && cmd.includes('State.Status')) {
-          return { stdout: 'running', stderr: '' };
-        }
-        if (cmd.includes('docker network ls')) {
-          return { stdout: 'kind\n', stderr: '' };
-        }
-        if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
-          return {
-            stdout: `
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:6000"]
-  endpoint = ["http://ca-registry:5000"]
-`,
-            stderr: '',
-          };
-        }
-        return { stdout: '', stderr: '' };
-      });
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(devConfig, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.warnings).toBeDefined();
-        expect(result.value.warnings?.some(w => w.includes('DNS resolution failed'))).toBe(true);
-      }
-    });
-
-    it('should validate containerd mirror configuration', async () => {
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(devConfig, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        // Should not have containerd config warnings when validation succeeds
-        expect(result.value.warnings?.some(w => w.includes('Containerd registry mirror'))).toBeFalsy();
-      }
-    });
-
-    it('should warn when containerd config validation fails', async () => {
-      // Mock invalid containerd config
-      (global as any).mockExecAsync.mockImplementation(async (cmd: string) => {
-        if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
-          // Return config without proper mirror configuration
-          return { stdout: '[plugins."io.containerd.grpc.v1.cri".registry]', stderr: '' };
-        }
-        // Keep other mocks working
-        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture')) {
-          return { stdout: 'amd64', stderr: '' };
-        }
-        if (cmd.includes('kind get clusters')) {
-          return { stdout: 'containerization-assist\n', stderr: '' };
-        }
-        if (cmd.includes('docker ps') && cmd.includes('ca-registry')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('kubectl run')) {
-          return { stdout: 'success\nDNS_SUCCESS', stderr: '' };
-        }
-        // Handle curl health checks - MUST come after kubectl run checks to avoid false matches
-        if (cmd.includes('curl') && cmd.includes('/v2/')) {
-          return { stdout: '{}', stderr: '' };
-        }
-        // Handle kubectl delete pod for test cleanup
-        if (cmd.includes('kubectl delete pod')) {
-          return { stdout: '', stderr: '' };
-        }
-        // Handle docker network connect
-        if (cmd.includes('docker network connect')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker inspect ca-registry') && cmd.includes('State.Status')) {
-          return { stdout: 'running', stderr: '' };
-        }
-        if (cmd.includes('docker network ls')) {
-          return { stdout: 'kind\n', stderr: '' };
-        }
-        return { stdout: '', stderr: '' };
-      });
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(devConfig, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.warnings).toBeDefined();
-        expect(result.value.warnings?.some(w => w.includes('Containerd registry mirror'))).toBe(true);
-      }
-    });
-
-    it('should handle stopped registry by restarting it', async () => {
-      // Mock registry exists but is stopped
-      let registryStarted = false;
-      (global as any).mockExecAsync.mockImplementation(async (cmd: string) => {
-        if (cmd.includes('docker ps -a') && cmd.includes('ca-registry')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('docker ps') && cmd.includes('ca-registry') && !cmd.includes('-a')) {
-          // Not running initially, running after start
-          return { stdout: registryStarted ? 'ca-registry\n' : '', stderr: '' };
-        }
-        if (cmd.includes('docker start ca-registry')) {
-          registryStarted = true;
-          return { stdout: 'ca-registry', stderr: '' };
-        }
-        if (cmd.includes('docker inspect ca-registry') && cmd.includes('State.Status')) {
-          return { stdout: registryStarted ? 'running' : 'exited', stderr: '' };
-        }
-        // Keep other mocks working
-        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture')) {
-          return { stdout: 'amd64', stderr: '' };
-        }
-        if (cmd.includes('kind get clusters')) {
-          return { stdout: 'containerization-assist\n', stderr: '' };
-        }
-        if (cmd.includes('docker network ls')) {
-          return { stdout: 'kind\n', stderr: '' };
-        }
-        // Handle DNS resolution test (matches registry-dns-test-<timestamp>)
-        if (cmd.includes('kubectl run') && cmd.includes('nslookup')) {
-          return { stdout: 'Address 1: 172.18.0.3 ca-registry\nDNS_SUCCESS', stderr: '' };
-        }
-        // Handle registry reachability test with curl (matches registry-test-<timestamp>)
-        if (cmd.includes('kubectl run') && cmd.includes('curl')) {
-          return { stdout: 'success', stderr: '' };
-        }
-        // Handle curl health checks - MUST come after kubectl run checks to avoid false matches
-        if (cmd.includes('curl') && cmd.includes('/v2/')) {
-          return { stdout: '{}', stderr: '' };
-        }
-        // Handle kubectl delete pod for test cleanup
-        if (cmd.includes('kubectl delete pod')) {
-          return { stdout: '', stderr: '' };
-        }
-        // Handle docker network connect
-        if (cmd.includes('docker network connect')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
-          return {
-            stdout: `
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:6000"]
-  endpoint = ["http://ca-registry:5000"]
-`,
-            stderr: '',
-          };
-        }
-        if (cmd.includes('docker inspect ca-registry') && cmd.includes('NetworkSettings.Networks')) {
-          return { stdout: 'bridge kind', stderr: '' };
-        }
-        if (cmd.includes('docker inspect ca-registry') && cmd.includes('NetworkSettings.Ports')) {
-          return { stdout: '6000', stderr: '' };
-        }
-        return { stdout: '', stderr: '' };
-      });
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(devConfig, mockContext);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.checks.localRegistryCreated).toBe(true);
-        expect(registryStarted).toBe(true);
-      }
-    }, 30000);
-
-    it('should validate registry health with exponential backoff', async () => {
-      let healthCheckAttempts = 0;
-      (global as any).mockExecAsync.mockImplementation(async (cmd: string) => {
-        if (cmd.includes('docker inspect ca-registry') && cmd.includes('State.Status')) {
-          return { stdout: 'running', stderr: '' };
-        }
-        // Keep other mocks working
-        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture')) {
-          return { stdout: 'amd64', stderr: '' };
-        }
-        if (cmd.includes('kind get clusters')) {
-          return { stdout: 'containerization-assist\n', stderr: '' };
-        }
-        if (cmd.includes('docker ps') && cmd.includes('ca-registry')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('docker network ls')) {
-          return { stdout: 'kind\n', stderr: '' };
-        }
-        // Handle DNS resolution test (matches registry-dns-test-<timestamp>)
-        if (cmd.includes('kubectl run') && cmd.includes('nslookup')) {
-          return { stdout: 'Address 1: 172.18.0.3 ca-registry\nDNS_SUCCESS', stderr: '' };
-        }
-        // Handle registry reachability test with curl (matches registry-test-<timestamp>)
-        if (cmd.includes('kubectl run') && cmd.includes('curl')) {
-          return { stdout: 'success', stderr: '' };
-        }
-        // Handle curl health checks - MUST come after kubectl run checks to avoid false matches
-        if (cmd.includes('curl') && cmd.includes('/v2/')) {
-          healthCheckAttempts++;
-          // Fail first 2 attempts, succeed on 3rd
-          if (healthCheckAttempts < 3) {
-            return { stdout: 'failed', stderr: '' };
-          }
-          return { stdout: '{}', stderr: '' };
-        }
-        // Handle kubectl delete pod for test cleanup
-        if (cmd.includes('kubectl delete pod')) {
-          return { stdout: '', stderr: '' };
-        }
-        // Handle docker network connect
-        if (cmd.includes('docker network connect')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
-          return {
-            stdout: `
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:6000"]
-  endpoint = ["http://ca-registry:5000"]
-`,
-            stderr: '',
-          };
-        }
-        if (cmd.includes('docker inspect ca-registry') && cmd.includes('NetworkSettings.Networks')) {
-          return { stdout: 'bridge kind', stderr: '' };
-        }
-        if (cmd.includes('docker inspect ca-registry') && cmd.includes('NetworkSettings.Ports')) {
-          return { stdout: '6000', stderr: '' };
-        }
-        return { stdout: '', stderr: '' };
-      });
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(devConfig, mockContext);
-
-      expect(result.ok).toBe(true);
-      // Should have retried multiple times with exponential backoff
-      expect(healthCheckAttempts).toBeGreaterThanOrEqual(3);
-    });
+describe('prepareCluster (context-only)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  describe('Explicit clusterType field', () => {
-    beforeEach(() => {
+  describe('generic cluster type', () => {
+    it('should return current state and no kind steps for generic cluster', async () => {
       mockK8sClient.ping.mockResolvedValue(true);
-      mockK8sClient.namespaceExists.mockResolvedValue(true);
       mockK8sClient.checkPermissions.mockResolvedValue(true);
-      mockK8sClient.applyManifest.mockResolvedValue({ success: true });
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
       mockK8sClient.checkIngressController.mockResolvedValue(true);
-    });
 
-    it('should use generic cluster type for namespace + RBAC setup', async () => {
-      const genericConfig: PrepareClusterParams = {
+      (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
+          return { stdout: 'amd64', stderr: '' };
+        if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem'))
+          return { stdout: 'linux', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const config: PrepareClusterParams = {
         clusterType: 'generic',
         namespace: 'test-ns',
         targetPlatform: 'linux/amd64',
       };
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(genericConfig, mockContext);
+      const result = await prepareCluster(config, createMockToolContext());
 
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.checks.rbacConfigured).toBe(true);
-        // Should NOT set up kind/registry
-        expect(result.value.checks.kindInstalled).toBeFalsy();
-        expect(result.value.checks.kindClusterCreated).toBeFalsy();
-        expect(result.value.checks.localRegistryCreated).toBeFalsy();
-      }
+      if (!result.ok) return;
+
+      expect(result.value.currentState.clusterType).toBe('generic');
+      expect(result.value.currentState.connectivity).toBe(true);
+      expect(result.value.currentState.permissions).toBe(true);
+      expect(result.value.currentState.namespaceExists).toBe(true);
+      expect(result.value.currentState.kindInstalled).toBeNull();
+      expect(result.value.currentState.kindClusterExists).toBeNull();
+
+      const kindSteps = result.value.setupSteps.filter((s) =>
+        [
+          'install-kind',
+          'create-kind-cluster',
+          'create-registry',
+          'connect-registry-network',
+        ].includes(s.id),
+      );
+      expect(kindSteps).toHaveLength(0);
+
+      expect(result.value.setupSteps.some((s) => s.id === 'setup-rbac')).toBe(true);
     });
 
-    it('should use kind cluster type for local Kind + registry setup', async () => {
-      const kindConfig: PrepareClusterParams = {
+    it('should include namespace step when namespace does not exist', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(false);
+      mockK8sClient.checkIngressController.mockResolvedValue(false);
+
+      (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
+          return { stdout: 'amd64', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const config: PrepareClusterParams = {
+        clusterType: 'generic',
+        namespace: 'new-ns',
+        targetPlatform: 'linux/amd64',
+      };
+      const result = await prepareCluster(config, createMockToolContext());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const nsStep = result.value.setupSteps.find((s) => s.id === 'create-namespace');
+      expect(nsStep).toBeDefined();
+      expect(nsStep!.alreadyDone).toBe(false);
+      expect(nsStep!.commands[0]).toContain('kubectl create namespace new-ns');
+    });
+
+    it('should fail when cluster is not reachable for generic type', async () => {
+      mockK8sClient.ping.mockResolvedValue(false);
+
+      const config: PrepareClusterParams = {
+        clusterType: 'generic',
+        namespace: 'test-ns',
+        targetPlatform: 'linux/amd64',
+      };
+      const result = await prepareCluster(config, createMockToolContext());
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toContain('Cannot connect to Kubernetes cluster');
+    });
+  });
+
+  describe('kind cluster type', () => {
+    it('should detect existing kind infrastructure and mark steps as done', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+      mockExecForKindExists();
+
+      const config: PrepareClusterParams = {
         clusterType: 'kind',
         namespace: 'default',
         targetPlatform: 'linux/amd64',
       };
+      const result = await prepareCluster(config, createMockToolContext());
 
-      // Mock Kind/registry commands
-      (global as any).mockExecAsync.mockImplementation(async (cmd: string) => {
-        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture')) {
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const state = result.value.currentState;
+      expect(state.clusterType).toBe('kind');
+      expect(state.kindInstalled).toBe(true);
+      expect(state.kindClusterExists).toBe(true);
+      expect(state.registryExists).toBe(true);
+      expect(state.registryPort).toBe(6000);
+      expect(state.registryHealthy).toBe(true);
+      expect(state.registryConnectedToKind).toBe(true);
+      expect(state.containerdMirrorConfigured).toBe(true);
+
+      const installStep = result.value.setupSteps.find((s) => s.id === 'install-kind');
+      expect(installStep?.alreadyDone).toBe(true);
+
+      const clusterStep = result.value.setupSteps.find((s) => s.id === 'create-kind-cluster');
+      expect(clusterStep?.alreadyDone).toBe(true);
+
+      const registryStep = result.value.setupSteps.find((s) => s.id === 'create-registry');
+      expect(registryStep?.alreadyDone).toBe(true);
+
+      const networkStep = result.value.setupSteps.find((s) => s.id === 'connect-registry-network');
+      expect(networkStep?.alreadyDone).toBe(true);
+    });
+
+    it('should return pending steps when kind cluster does not exist', async () => {
+      mockK8sClient.ping.mockResolvedValue(false);
+      mockK8sClient.checkPermissions.mockResolvedValue(false);
+      mockK8sClient.namespaceExists.mockResolvedValue(false);
+      mockK8sClient.checkIngressController.mockResolvedValue(false);
+      mockExecForKindNotExists();
+
+      const config: PrepareClusterParams = {
+        clusterType: 'kind',
+        namespace: 'default',
+        targetPlatform: 'linux/amd64',
+      };
+      const result = await prepareCluster(config, createMockToolContext());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.value.currentState.kindClusterExists).toBe(false);
+      expect(result.value.currentState.registryExists).toBeFalsy();
+
+      const clusterStep = result.value.setupSteps.find((s) => s.id === 'create-kind-cluster');
+      expect(clusterStep?.alreadyDone).toBe(false);
+      expect(clusterStep?.kindConfigPatches).toBeDefined();
+      expect(clusterStep?.kindConfigPatches).toContain('containerdConfigPatches');
+      expect(clusterStep?.kindConfigPatches).toContain('extraPortMappings');
+
+      const registryStep = result.value.setupSteps.find((s) => s.id === 'create-registry');
+      expect(registryStep?.alreadyDone).toBe(false);
+      expect(registryStep?.commands[0]).toContain('docker run');
+    });
+
+    it('should include validation steps for kind with registry', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+      mockExecForKindExists();
+
+      const config: PrepareClusterParams = {
+        clusterType: 'kind',
+        namespace: 'default',
+        targetPlatform: 'linux/amd64',
+      };
+      const result = await prepareCluster(config, createMockToolContext());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const validationIds = result.value.validationSteps.map((s) => s.id);
+      expect(validationIds).toContain('verify-connectivity');
+      expect(validationIds).toContain('verify-nodes-ready');
+      expect(validationIds).toContain('verify-namespace');
+      expect(validationIds).toContain('verify-registry-health');
+      expect(validationIds).toContain('verify-registry-from-cluster');
+      expect(validationIds).toContain('verify-registry-dns');
+    });
+
+    it('should not include registry validation steps for generic cluster', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+
+      (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
           return { stdout: 'amd64', stderr: '' };
-        }
-        if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem')) {
-          return { stdout: 'linux', stderr: '' };
-        }
-        if (cmd.includes('kind get clusters')) {
-          return { stdout: 'containerization-assist\n', stderr: '' };
-        }
-        if (cmd.includes('kind version')) {
-          return { stdout: 'kind v0.20.0 go1.20.5 linux/amd64', stderr: '' };
-        }
-        if (cmd.includes('docker ps -a') && cmd.includes('ca-registry')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('docker ps') && cmd.includes('ca-registry') && !cmd.includes('-a')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('docker network ls')) {
-          return { stdout: 'kind\n', stderr: '' };
-        }
-        if (cmd.includes('kubectl get nodes --no-headers')) {
-          return { stdout: 'node1   Ready   control-plane   1m   v1.27.3\n', stderr: '' };
-        }
-        if (cmd.includes('kubectl run') && cmd.includes('nslookup')) {
-          return { stdout: 'Address 1: 172.18.0.3 ca-registry\nDNS_SUCCESS', stderr: '' };
-        }
-        if (cmd.includes('kubectl run') && cmd.includes('curl')) {
-          return { stdout: 'success', stderr: '' };
-        }
-        if (cmd.includes('curl') && cmd.includes('/v2/')) {
-          return { stdout: '{}', stderr: '' };
-        }
-        if (cmd.includes('kubectl delete pod')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker network connect')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
-          return {
-            stdout: `
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:6000"]
-  endpoint = ["http://ca-registry:5000"]
-`,
-            stderr: '',
-          };
-        }
-        if (cmd.includes('docker inspect ca-registry')) {
-          if (cmd.includes('State.Status')) {
-            return { stdout: 'running', stderr: '' };
-          }
-          if (cmd.includes('NetworkSettings.Networks')) {
-            return { stdout: 'bridge kind', stderr: '' };
-          }
-          if (cmd.includes('NetworkSettings.Ports')) {
-            return { stdout: '6000', stderr: '' };
-          }
-        }
-        if (cmd.includes('kind export kubeconfig')) {
-          return { stdout: '', stderr: '' };
-        }
         return { stdout: '', stderr: '' };
       });
 
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(kindConfig, mockContext);
+      const config: PrepareClusterParams = {
+        clusterType: 'generic',
+        namespace: 'test-ns',
+        targetPlatform: 'linux/amd64',
+      };
+      const result = await prepareCluster(config, createMockToolContext());
 
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.checks.kindInstalled).toBe(true);
-        expect(result.value.checks.kindClusterCreated).toBe(true);
-        expect(result.value.checks.localRegistryCreated).toBe(true);
-      }
+      if (!result.ok) return;
+
+      const validationIds = result.value.validationSteps.map((s) => s.id);
+      expect(validationIds).toContain('verify-connectivity');
+      expect(validationIds).not.toContain('verify-registry-health');
+      expect(validationIds).not.toContain('verify-registry-from-cluster');
+      expect(validationIds).not.toContain('verify-registry-dns');
+    });
+  });
+
+  describe('backwards compatibility', () => {
+    it('should infer kind from environment=development when clusterType omitted', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+      mockExecForKindExists();
+
+      const config: PrepareClusterParams = {
+        environment: 'development',
+        namespace: 'default',
+        targetPlatform: 'linux/amd64',
+      };
+      const result = await prepareCluster(config, createMockToolContext());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.currentState.clusterType).toBe('kind');
+      expect(result.value.currentState.kindInstalled).toBe(true);
+    });
+
+    it('should infer generic from environment=production when clusterType omitted', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+
+      (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
+          return { stdout: 'amd64', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const config: PrepareClusterParams = {
+        environment: 'production',
+        namespace: 'prod',
+        targetPlatform: 'linux/amd64',
+      };
+      const result = await prepareCluster(config, createMockToolContext());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.currentState.clusterType).toBe('generic');
     });
 
     it('should let clusterType override environment-based inference', async () => {
-      // Pass environment=development but clusterType=generic — clusterType wins
-      const overrideConfig: PrepareClusterParams = {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+
+      (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
+          return { stdout: 'amd64', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const config: PrepareClusterParams = {
         clusterType: 'generic',
         environment: 'development',
         namespace: 'override-ns',
         targetPlatform: 'linux/amd64',
       };
-
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(overrideConfig, mockContext);
+      const result = await prepareCluster(config, createMockToolContext());
 
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        // Should behave as generic (RBAC), NOT kind
-        expect(result.value.checks.rbacConfigured).toBe(true);
-        expect(result.value.checks.kindInstalled).toBeFalsy();
-        expect(result.value.checks.kindClusterCreated).toBeFalsy();
-      }
+      if (!result.ok) return;
+      expect(result.value.currentState.clusterType).toBe('generic');
+      expect(result.value.currentState.kindInstalled).toBeNull();
     });
+  });
 
-    it('should infer kind from environment=development when clusterType omitted (backwards compat)', async () => {
-      // This is the backwards-compat path — existing tests in 'Development environment' block
-      // also cover this, but this test makes the intent explicit
-      const legacyConfig: PrepareClusterParams = {
-        environment: 'development',
+  describe('summary and structure', () => {
+    it('should produce correct summary counts', async () => {
+      mockK8sClient.ping.mockResolvedValue(false);
+      mockK8sClient.checkPermissions.mockResolvedValue(false);
+      mockK8sClient.namespaceExists.mockResolvedValue(false);
+      mockExecForKindNotExists();
+
+      const config: PrepareClusterParams = {
+        clusterType: 'kind',
         namespace: 'default',
         targetPlatform: 'linux/amd64',
       };
+      const result = await prepareCluster(config, createMockToolContext());
 
-      // Mock Kind/registry commands
-      (global as any).mockExecAsync.mockImplementation(async (cmd: string) => {
-        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture')) {
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.value.summary).toContain('setup');
+      expect(result.value.summary).toContain('validation');
+      expect(result.value.setupSteps.length).toBeGreaterThan(0);
+      expect(result.value.validationSteps.length).toBeGreaterThan(0);
+    });
+
+    it('should not execute any shell commands that modify state', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+      mockExecForKindExists();
+
+      const config: PrepareClusterParams = {
+        clusterType: 'kind',
+        namespace: 'default',
+        targetPlatform: 'linux/amd64',
+      };
+      await prepareCluster(config, createMockToolContext());
+
+      const calls = execAsyncMock.mock.calls.map((c: any[]) => c[0] as string);
+      const mutatingPatterns = [
+        'kind create cluster',
+        'docker run ',
+        'docker start ',
+        'docker network connect',
+        'kubectl create namespace',
+        'kubectl apply',
+        'kubectl run ',
+        'kind export kubeconfig',
+        'sudo mv',
+        'curl -Lo',
+      ];
+
+      for (const pattern of mutatingPatterns) {
+        const found = calls.filter((cmd: string) => cmd.includes(pattern));
+        expect(found).toHaveLength(0);
+      }
+    });
+
+    it('should include warnings array even when empty', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+
+      (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
           return { stdout: 'amd64', stderr: '' };
-        }
-        if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem')) {
+        if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem'))
           return { stdout: 'linux', stderr: '' };
-        }
-        if (cmd.includes('kind get clusters')) {
-          return { stdout: 'containerization-assist\n', stderr: '' };
-        }
-        if (cmd.includes('kind version')) {
-          return { stdout: 'kind v0.20.0 go1.20.5 linux/amd64', stderr: '' };
-        }
-        if (cmd.includes('docker ps -a') && cmd.includes('ca-registry')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('docker ps') && cmd.includes('ca-registry') && !cmd.includes('-a')) {
-          return { stdout: 'ca-registry\n', stderr: '' };
-        }
-        if (cmd.includes('docker network ls')) {
-          return { stdout: 'kind\n', stderr: '' };
-        }
-        if (cmd.includes('kubectl get nodes --no-headers')) {
-          return { stdout: 'node1   Ready   control-plane   1m   v1.27.3\n', stderr: '' };
-        }
-        if (cmd.includes('kubectl run') && cmd.includes('nslookup')) {
-          return { stdout: 'Address 1: 172.18.0.3 ca-registry\nDNS_SUCCESS', stderr: '' };
-        }
-        if (cmd.includes('kubectl run') && cmd.includes('curl')) {
-          return { stdout: 'success', stderr: '' };
-        }
-        if (cmd.includes('curl') && cmd.includes('/v2/')) {
-          return { stdout: '{}', stderr: '' };
-        }
-        if (cmd.includes('kubectl delete pod')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker network connect')) {
-          return { stdout: '', stderr: '' };
-        }
-        if (cmd.includes('docker exec') && cmd.includes('config.toml')) {
-          return {
-            stdout: `
-[plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:6000"]
-  endpoint = ["http://ca-registry:5000"]
-`,
-            stderr: '',
-          };
-        }
-        if (cmd.includes('docker inspect ca-registry')) {
-          if (cmd.includes('State.Status')) {
-            return { stdout: 'running', stderr: '' };
-          }
-          if (cmd.includes('NetworkSettings.Networks')) {
-            return { stdout: 'bridge kind', stderr: '' };
-          }
-          if (cmd.includes('NetworkSettings.Ports')) {
-            return { stdout: '6000', stderr: '' };
-          }
-        }
-        if (cmd.includes('kind export kubeconfig')) {
-          return { stdout: '', stderr: '' };
-        }
         return { stdout: '', stderr: '' };
       });
 
-      const mockContext = createMockToolContext();
-      const result = await prepareCluster(legacyConfig, mockContext);
+      const config: PrepareClusterParams = {
+        clusterType: 'generic',
+        namespace: 'default',
+        targetPlatform: 'linux/amd64',
+      };
+      const result = await prepareCluster(config, createMockToolContext());
 
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.checks.kindInstalled).toBe(true);
-        expect(result.value.checks.kindClusterCreated).toBe(true);
-        expect(result.value.checks.localRegistryCreated).toBe(true);
-      }
+      if (!result.ok) return;
+      expect(Array.isArray(result.value.warnings)).toBe(true);
+    });
+  });
+
+  describe('platform compatibility', () => {
+    it('should warn on platform mismatch with strict mode', async () => {
+      mockK8sClient.ping.mockResolvedValue(true);
+      mockK8sClient.checkPermissions.mockResolvedValue(true);
+      mockK8sClient.namespaceExists.mockResolvedValue(true);
+      mockK8sClient.checkIngressController.mockResolvedValue(true);
+
+      const { isPlatformCompatible } = jest.requireMock('@/lib/platform') as any;
+      isPlatformCompatible.mockReturnValue(false);
+
+      (execAsyncMock as any).mockImplementation(async (cmd: string) => {
+        if (cmd.includes('kubectl get nodes') && cmd.includes('architecture'))
+          return { stdout: 'arm64', stderr: '' };
+        if (cmd.includes('kubectl get nodes') && cmd.includes('operatingSystem'))
+          return { stdout: 'linux', stderr: '' };
+        return { stdout: '', stderr: '' };
+      });
+
+      const config: PrepareClusterParams = {
+        clusterType: 'generic',
+        namespace: 'test-ns',
+        targetPlatform: 'linux/amd64',
+        strictPlatformValidation: true,
+      };
+      const result = await prepareCluster(config, createMockToolContext());
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.warnings.some((w) => w.includes('Platform mismatch'))).toBe(true);
     });
   });
 });

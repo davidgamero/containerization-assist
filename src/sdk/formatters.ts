@@ -612,42 +612,32 @@ function formatPrepareClusterResultProse(
 ): string {
   const sections: string[] = [];
 
-  if (result.summary) {
-    sections.push(formatSection('Cluster Preparation', result.summary));
-  } else {
-    sections.push(
-      formatSection(
-        'Cluster Preparation',
-        result.clusterReady ? '✅ Cluster is ready' : '❌ Cluster preparation incomplete',
-      ),
-    );
-  }
+  sections.push(formatSection('Cluster Inspection', result.summary));
 
-  // Cluster details
+  const state = result.currentState;
   const details: string[] = [];
-  details.push(`- **Cluster**: ${result.cluster}`);
-  details.push(`- **Namespace**: ${result.namespace}`);
-  if (result.localRegistryUrl) {
-    details.push(`- **Local Registry**: ${result.localRegistryUrl}`);
+  details.push(`- **Cluster Type**: ${state.clusterType}`);
+  details.push(`- **Connectivity**: ${state.connectivity ? '✓' : '✗'}`);
+  details.push(`- **Permissions**: ${state.permissions ? '✓' : '✗'}`);
+  details.push(`- **Namespace Exists**: ${state.namespaceExists ? '✓' : '✗'}`);
+  if (state.kindInstalled !== null) {
+    details.push(`- **Kind Installed**: ${state.kindInstalled ? '✓' : '✗'}`);
   }
-  sections.push(formatSection('Configuration', details.join('\n')));
+  if (state.kindClusterExists !== null) {
+    details.push(`- **Kind Cluster**: ${state.kindClusterExists ? '✓' : '✗'}`);
+  }
+  if (state.registryPort !== null) {
+    details.push(`- **Registry Port**: ${state.registryPort}`);
+  }
+  sections.push(formatSection('Current State', details.join('\n')));
 
-  // Checks status
-  const checks = result.checks;
-  const checkItems: string[] = [];
-  checkItems.push(`- Connectivity: ${checks.connectivity ? '✓' : '✗'}`);
-  checkItems.push(`- Permissions: ${checks.permissions ? '✓' : '✗'}`);
-  checkItems.push(`- Namespace: ${checks.namespaceExists ? '✓' : '✗'}`);
-  if (checks.kindClusterCreated !== undefined) {
-    checkItems.push(`- Kind Cluster: ${checks.kindClusterCreated ? '✓' : '✗'}`);
+  const pendingSteps = result.setupSteps.filter((s) => !s.alreadyDone);
+  if (pendingSteps.length > 0) {
+    const stepItems = pendingSteps.map((s) => `- ${s.description}`).join('\n');
+    sections.push(formatSection('Setup Steps Needed', stepItems));
   }
-  if (checks.localRegistryCreated !== undefined) {
-    checkItems.push(`- Local Registry: ${checks.localRegistryCreated ? '✓' : '✗'}`);
-  }
-  sections.push(formatSection('Status Checks', checkItems.join('\n')));
 
-  // Warnings
-  if (result.warnings && result.warnings.length > 0) {
+  if (result.warnings.length > 0) {
     const warnings = result.warnings.map((w) => `- ⚠️ ${w}`).join('\n');
     sections.push(formatSection('Warnings', warnings));
   }
@@ -656,7 +646,7 @@ function formatPrepareClusterResultProse(
     sections.push(
       formatSection(
         'Suggested Next Step',
-        'Apply your Kubernetes manifests using kubectl, then use `verify_deploy` to check status.',
+        'Execute the setup steps in order, run validation steps, then apply your Kubernetes manifests and use `verify_deploy` to check status.',
       ),
     );
   }
