@@ -7,8 +7,12 @@
 
 import { TOOL_NAME } from '@/tools';
 import {
+  acrValidationStep,
+  aksClusterValidationStep,
+  aksRbacPreDeployCheck,
   analyzeStep,
   assemblePrompt,
+  azureSubscriptionStep,
   deployStep,
   generateDockerfileStep,
   scanStep,
@@ -45,6 +49,12 @@ export function buildAksRemoteDevLoopPrompt(args: AksRemoteDevLoopArgs): string 
       '- Target platform: **linux/amd64** (standard AKS node architecture).',
     ],
     [
+      // Pre-flight: Azure resource selection & validation
+      azureSubscriptionStep(),
+      aksClusterValidationStep(),
+      acrValidationStep(),
+
+      // Core workflow
       analyzeStep(),
       generateDockerfileStep(),
       {
@@ -64,7 +74,7 @@ export function buildAksRemoteDevLoopPrompt(args: AksRemoteDevLoopArgs): string 
           '   - `namespace`: the namespace from context above',
           '   - `targetPlatform: "linux/amd64"`',
           '2. Retry up to **2 times** on failure.',
-          '3. If kubeconfig is not set, prompt the user to run `az aks get-credentials --resource-group <rg> --name <cluster>`.',
+          '3. Kubeconfig was already validated in the pre-flight step — do NOT re-prompt for `az aks get-credentials`.',
         ].join('\n'),
       },
       {
@@ -89,8 +99,17 @@ export function buildAksRemoteDevLoopPrompt(args: AksRemoteDevLoopArgs): string 
           `1. Call **${TOOL_NAME.GENERATE_K8S_MANIFESTS}** with the repository path, namespace, and analysis context. Set the image reference in the manifests to use the ACR registry prefix \`${registry}/\`.`,
           "2. Follow the tool's guidance to create manifest files on disk.",
           '3. Retry up to **2 times** if generation fails.',
+          '',
+          '**AKS Automatic hardening** — if `isAutomatic` was detected in the pre-flight cluster validation step, ensure generated manifests include:',
+          '- Pod-level: `securityContext.runAsNonRoot: true` and `securityContext.seccompProfile.type: RuntimeDefault`',
+          '- Container-level: `securityContext.allowPrivilegeEscalation: false` and `capabilities.drop: ["ALL"]`',
+          '- Resource requests and limits on every container (e.g., `cpu: 500m / 1000m`, `memory: 512Mi / 1Gi`)',
         ].join('\n'),
       },
+
+      // Pre-deploy RBAC check (only when Azure RBAC detected)
+      aksRbacPreDeployCheck(),
+
       deployStep('AKS'),
       verifyStep([
         '3. Report the external IP / ingress endpoint if a LoadBalancer or Ingress is configured.',
@@ -100,6 +119,9 @@ export function buildAksRemoteDevLoopPrompt(args: AksRemoteDevLoopArgs): string 
       ...sharedRules,
       '- Use **linux/amd64** as the target platform for all builds (standard AKS architecture).',
       '- For ACR authentication issues, guide the user through `az acr login` before retrying.',
+      "- Do **NOT** suggest `az aks command invoke` as an RBAC bypass when `isAzureRbac` is true — it authenticates as the caller's identity and hits the same `Forbidden` responses.",
+      '- Do **NOT** suggest `--admin` kubeconfig when `localAccountsDisabled` is true — it will be rejected by AKS.',
+      '- If using `vscode_askQuestions` for pickers, always include a free-text input option so the user can type a value manually.',
     ],
   );
 }
