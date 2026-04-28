@@ -29,6 +29,7 @@ import { createKnowledgeTool, createSimpleCategorizer } from '../shared/knowledg
 import type { z } from 'zod';
 import yaml from 'js-yaml';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { extractErrorMessage } from '@/lib/errors';
 import { pluralize } from '@/lib/summary-helpers';
 import type { RegoEvaluator } from '@/config/policy-rego';
@@ -43,6 +44,56 @@ import { generateK8sManifestsToolDefinition } from './types';
 import { validatePathOrFail } from '@/lib/validation-helpers';
 
 const { name } = generateK8sManifestsToolDefinition;
+
+function getToolPackageVersion(): string {
+  try {
+    const searchDirs = [
+      path.join(__dirname, '../../../../package.json'),
+      path.join(__dirname, '../../../package.json'),
+      path.join(__dirname, '../../package.json'),
+    ];
+    for (const candidate of searchDirs) {
+      try {
+        const pkg = JSON.parse(readFileSync(candidate, 'utf-8')) as {
+          name?: string;
+          version?: string;
+        };
+        if (pkg.name === 'containerization-assist-mcp' && pkg.version) {
+          return pkg.version;
+        }
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    /* fallback to 'unknown' */
+  }
+  return 'unknown';
+}
+
+const toolPackageVersion = getToolPackageVersion();
+
+function buildAttributionMetadata(
+  appName: string | undefined,
+  policyLabels?: Record<string, string>,
+): { labels: Record<string, string>; annotations: Record<string, string> } {
+  const labels: Record<string, string> = {
+    'app.kubernetes.io/managed-by': 'containerization-assist',
+  };
+  if (appName) {
+    labels['app.kubernetes.io/name'] = appName;
+  }
+
+  if (policyLabels) {
+    Object.assign(labels, policyLabels);
+  }
+
+  const annotations: Record<string, string> = {
+    'containerization-assist.io/version': toolPackageVersion,
+  };
+
+  return { labels, annotations };
+}
 
 /**
  * Extended input parameters that include optional policy configuration.
@@ -161,6 +212,18 @@ function planToManifestText(plan: ManifestPlan, manifestType: string): string {
     lines.push('kind: Deployment');
     lines.push('metadata:');
     lines.push(`  name: ${plan.repositoryInfo?.name || 'app'}`);
+    if (plan.metadata?.labels) {
+      lines.push('  labels:');
+      for (const [key, value] of Object.entries(plan.metadata.labels)) {
+        lines.push(`    ${key}: ${value}`);
+      }
+    }
+    if (plan.metadata?.annotations) {
+      lines.push('  annotations:');
+      for (const [key, value] of Object.entries(plan.metadata.annotations)) {
+        lines.push(`    ${key}: ${value}`);
+      }
+    }
     lines.push('spec:');
     lines.push('  template:');
     lines.push('    spec:');
@@ -355,7 +418,7 @@ const runPattern = createKnowledgeTool<
 
         const nextAction: ToolNextAction = {
           action: 'create-files',
-          instruction: `Create Kubernetes manifests in ./k8s directory by converting the ACA manifest using field mappings from recommendations.fieldMappings. Apply security considerations from recommendations.securityConsiderations and best practices from recommendations.bestPractices. Reference the acaAnalysis for container app structure.`,
+          instruction: `Create Kubernetes manifests in ./k8s directory by converting the ACA manifest using field mappings from recommendations.fieldMappings. Apply security considerations from recommendations.securityConsiderations and best practices from recommendations.bestPractices. Reference the acaAnalysis for container app structure. Apply labels and annotations from metadata.labels and metadata.annotations to all resource metadata.`,
           files: manifestFiles,
         };
 
@@ -375,6 +438,7 @@ const runPattern = createKnowledgeTool<
           nextAction,
           acaAnalysis: analysis,
           manifestType: 'kubernetes',
+          metadata: buildAttributionMetadata(analysis.containerApps[0]?.name),
           recommendations: {
             fieldMappings,
             securityConsiderations: securityMatches,
@@ -456,7 +520,7 @@ const runPattern = createKnowledgeTool<
 
       const nextAction: ToolNextAction = {
         action: 'create-files',
-        instruction: `Create ${input.manifestType} manifests in ./k8s directory for ${input.name}. Use security considerations from recommendations.securityConsiderations, resource management from recommendations.resourceManagement, and best practices from recommendations.bestPractices. Reference repositoryInfo for application details like language, frameworks, ports, and entry point. Use detectedDependencies (if provided in input) for dependency-aware manifest configuration.${policyInstruction}`,
+        instruction: `Create ${input.manifestType} manifests in ./k8s directory for ${input.name}. Use security considerations from recommendations.securityConsiderations, resource management from recommendations.resourceManagement, and best practices from recommendations.bestPractices. Reference repositoryInfo for application details like language, frameworks, ports, and entry point. Use detectedDependencies (if provided in input) for dependency-aware manifest configuration. Apply labels and annotations from metadata.labels and metadata.annotations to all resource metadata.${policyInstruction}`,
         files: manifestFiles,
       };
 
@@ -494,6 +558,10 @@ const runPattern = createKnowledgeTool<
           targetPlatform: input.targetPlatform,
         } as RepositoryInfo,
         manifestType: input.manifestType,
+        metadata: buildAttributionMetadata(
+          input.name,
+          input.k8sConfig?.orgStandards?.requiredLabels,
+        ),
         recommendations: {
           securityConsiderations: securityMatches,
           resourceManagement: resourceMatches,

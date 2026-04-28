@@ -383,6 +383,86 @@ describe('generate-k8s-manifests with policy configuration', () => {
     });
   });
 
+  describe('attribution metadata', () => {
+    it('should include default attribution labels and annotations without policy', async () => {
+      const ctx = createToolContext(createLogger({ name: 'test', level: 'silent' }), {
+        policy: undefined,
+      });
+
+      const result = await generateK8sManifestsTool.handler(
+        {
+          repositoryPath: testDir,
+          manifestType: 'deployment',
+          imageName: 'test-app:latest',
+          appName: 'test-app',
+          environment: 'production',
+        },
+        ctx
+      );
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const plan = result.value;
+        expect(plan.metadata).toBeDefined();
+        expect(plan.metadata!.labels['app.kubernetes.io/managed-by']).toBe('containerization-assist');
+        expect(plan.metadata!.labels['app.kubernetes.io/name']).toBeDefined();
+        expect(plan.metadata!.annotations['containerization-assist.io/version']).toBeDefined();
+      }
+    });
+
+    it('should merge policy requiredLabels over default attribution labels', async () => {
+      const orgPolicy = `
+        package containerization.generation_config
+
+        import rego.v1
+
+        kubernetes := {
+          "orgStandards": {
+            "requiredLabels": {
+              "team": "platform",
+              "app.kubernetes.io/managed-by": "my-org-tool"
+            }
+          }
+        } if {
+          input.environment == "production"
+        }
+      `;
+      writeFileSync(join(policyDir, 'org-labels.rego'), orgPolicy);
+
+      const policyResult = await loadAndMergePolicies(
+        [join(policyDir, 'org-labels.rego')],
+        createLogger({ name: 'test', level: 'silent' })
+      );
+      expect(policyResult.ok).toBe(true);
+      if (!policyResult.ok) return;
+
+      const ctx = createToolContext(createLogger({ name: 'test', level: 'silent' }), {
+        policy: policyResult.value,
+      });
+
+      const result = await generateK8sManifestsTool.handler(
+        {
+          repositoryPath: testDir,
+          manifestType: 'deployment',
+          imageName: 'test-app:latest',
+          appName: 'test-app',
+          environment: 'production',
+        },
+        ctx
+      );
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const plan = result.value;
+        expect(plan.metadata).toBeDefined();
+        expect(plan.metadata!.labels['app.kubernetes.io/managed-by']).toBe('my-org-tool');
+        expect(plan.metadata!.labels['team']).toBe('platform');
+        expect(plan.metadata!.labels['app.kubernetes.io/name']).toBeDefined();
+        expect(plan.metadata!.annotations['containerization-assist.io/version']).toBeDefined();
+      }
+    });
+  });
+
   describe('empty policy response', () => {
     it('should handle empty policy response gracefully', async () => {
       // Create policy that doesn't define kubernetes config

@@ -3,7 +3,13 @@
  */
 
 import { z } from 'zod';
-import { environment, platform, repositoryPath, workspacePath, type ToolNextAction } from '../shared/schemas';
+import {
+  environment,
+  platform,
+  repositoryPath,
+  workspacePath,
+  type ToolNextAction,
+} from '../shared/schemas';
 import type { PolicyValidationResult } from '@/lib/policy-helpers';
 
 export const generateK8sManifestsSchema = z
@@ -191,6 +197,11 @@ export interface ManifestPlan {
     warnings: string[];
   };
   manifestType: 'kubernetes' | 'helm' | 'aca' | 'kustomize';
+  /** Attribution metadata to apply to all generated Kubernetes resources */
+  metadata?: {
+    labels: Record<string, string>;
+    annotations: Record<string, string>;
+  };
   recommendations: {
     fieldMappings?: ManifestRequirement[];
     securityConsiderations: ManifestRequirement[];
