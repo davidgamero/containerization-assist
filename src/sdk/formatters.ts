@@ -238,6 +238,14 @@ function formatGenerateDockerfileResultProse(
     );
   }
 
+  // Attribution labels
+  if (result.attributionLabels) {
+    const labelList = Object.entries(result.attributionLabels.labels)
+      .map(([key, value]) => `- \`${key}\`: ${value}`)
+      .join('\n');
+    sections.push(formatSection('Attribution Labels', labelList));
+  }
+
   return sections.join('\n');
 }
 
@@ -591,6 +599,22 @@ function formatGenerateK8sManifestsResultProse(
         'Use this plan to write the YAML manifests, then `prepare_cluster` and apply them.',
       ),
     );
+  }
+
+  // Attribution labels and annotations
+  if (result.attributionLabels) {
+    const labelList = Object.entries(result.attributionLabels.labels)
+      .map(([key, value]) => `- \`${key}\`: ${value}`)
+      .join('\n');
+    const annotationList = result.attributionLabels.annotations
+      ? Object.entries(result.attributionLabels.annotations)
+          .map(([key, value]) => `- \`${key}\`: ${value}`)
+          .join('\n')
+      : '';
+    const combined = annotationList
+      ? `**Labels:**\n${labelList}\n\n**Annotations:**\n${annotationList}`
+      : labelList;
+    sections.push(formatSection('Attribution', combined));
   }
 
   return sections.join('\n');

@@ -341,6 +341,14 @@ export function formatDockerfilePlanNarrative(
     }
   }
 
+  // Attribution labels
+  if (plan.attributionLabels) {
+    parts.push(`\n**Attribution Labels (LABEL instructions):**`);
+    for (const [key, value] of Object.entries(plan.attributionLabels.labels)) {
+      parts.push(`  ${key}: ${value}`);
+    }
+  }
+
   // Next steps (only if chainHintsMode is enabled)
   if (chainHintsMode === CHAINHINTSMODE.ENABLED) {
     parts.push('\n**Next Steps:**');
@@ -883,6 +891,20 @@ export function formatGenerateK8sManifestsNarrative(
     }
     if (warnings.length > 0) {
       parts.push(`  Warnings: ${warnings.length}`);
+    }
+  }
+
+  // Attribution labels and annotations
+  if (result.attributionLabels) {
+    parts.push(`\n**Attribution Labels:**`);
+    for (const [key, value] of Object.entries(result.attributionLabels.labels)) {
+      parts.push(`  ${key}: ${value}`);
+    }
+    if (result.attributionLabels.annotations) {
+      parts.push(`\n**Attribution Annotations:**`);
+      for (const [key, value] of Object.entries(result.attributionLabels.annotations)) {
+        parts.push(`  ${key}: ${value}`);
+      }
     }
   }
 

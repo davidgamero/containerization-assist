@@ -403,10 +403,10 @@ describe('generate-k8s-manifests with policy configuration', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         const plan = result.value;
-        expect(plan.metadata).toBeDefined();
-        expect(plan.metadata!.labels['app.kubernetes.io/managed-by']).toBe('containerization-assist');
-        expect(plan.metadata!.labels['app.kubernetes.io/name']).toBeDefined();
-        expect(plan.metadata!.annotations['containerization-assist.io/version']).toBeDefined();
+        expect(plan.attributionLabels).toBeDefined();
+        expect(plan.attributionLabels!.labels['app.kubernetes.io/managed-by']).toBe('containerization-assist');
+        expect(plan.attributionLabels!.labels['app.kubernetes.io/name']).toBeDefined();
+        expect(plan.attributionLabels!.annotations['containerization-assist.io/version']).toBeDefined();
       }
     });
 
@@ -454,11 +454,11 @@ describe('generate-k8s-manifests with policy configuration', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         const plan = result.value;
-        expect(plan.metadata).toBeDefined();
-        expect(plan.metadata!.labels['app.kubernetes.io/managed-by']).toBe('my-org-tool');
-        expect(plan.metadata!.labels['team']).toBe('platform');
-        expect(plan.metadata!.labels['app.kubernetes.io/name']).toBeDefined();
-        expect(plan.metadata!.annotations['containerization-assist.io/version']).toBeDefined();
+        expect(plan.attributionLabels).toBeDefined();
+        expect(plan.attributionLabels!.labels['app.kubernetes.io/managed-by']).toBe('my-org-tool');
+        expect(plan.attributionLabels!.labels['team']).toBe('platform');
+        expect(plan.attributionLabels!.labels['app.kubernetes.io/name']).toBeDefined();
+        expect(plan.attributionLabels!.annotations['containerization-assist.io/version']).toBeDefined();
       }
     });
   });
