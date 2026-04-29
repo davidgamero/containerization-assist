@@ -238,12 +238,12 @@ function formatGenerateDockerfileResultProse(
     );
   }
 
-  // Attribution labels
+  // Version label
   if (result.attributionLabels) {
     const labelList = Object.entries(result.attributionLabels.labels)
       .map(([key, value]) => `- \`${key}\`: ${value}`)
       .join('\n');
-    sections.push(formatSection('Attribution Labels', labelList));
+    sections.push(formatSection('Version Label', labelList));
   }
 
   return sections.join('\n');
@@ -601,20 +601,12 @@ function formatGenerateK8sManifestsResultProse(
     );
   }
 
-  // Attribution labels and annotations
-  if (result.attributionLabels) {
-    const labelList = Object.entries(result.attributionLabels.labels)
+  // Version annotation
+  if (result.attributionLabels?.annotations) {
+    const annotationList = Object.entries(result.attributionLabels.annotations)
       .map(([key, value]) => `- \`${key}\`: ${value}`)
       .join('\n');
-    const annotationList = result.attributionLabels.annotations
-      ? Object.entries(result.attributionLabels.annotations)
-          .map(([key, value]) => `- \`${key}\`: ${value}`)
-          .join('\n')
-      : '';
-    const combined = annotationList
-      ? `**Labels:**\n${labelList}\n\n**Annotations:**\n${annotationList}`
-      : labelList;
-    sections.push(formatSection('Attribution', combined));
+    sections.push(formatSection('Version Annotation', annotationList));
   }
 
   return sections.join('\n');

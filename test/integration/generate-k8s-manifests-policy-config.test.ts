@@ -384,7 +384,7 @@ describe('generate-k8s-manifests with policy configuration', () => {
   });
 
   describe('attribution metadata', () => {
-    it('should include default attribution labels and annotations without policy', async () => {
+    it('should include version annotation without policy', async () => {
       const ctx = createToolContext(createLogger({ name: 'test', level: 'silent' }), {
         policy: undefined,
       });
@@ -404,61 +404,8 @@ describe('generate-k8s-manifests with policy configuration', () => {
       if (result.ok) {
         const plan = result.value;
         expect(plan.attributionLabels).toBeDefined();
-        expect(plan.attributionLabels!.labels['app.kubernetes.io/managed-by']).toBe('containerization-assist');
-        expect(plan.attributionLabels!.labels['app.kubernetes.io/name']).toBeDefined();
         expect(plan.attributionLabels!.annotations['containerization-assist.io/version']).toBeDefined();
-      }
-    });
-
-    it('should merge policy requiredLabels over default attribution labels', async () => {
-      const orgPolicy = `
-        package containerization.generation_config
-
-        import rego.v1
-
-        kubernetes := {
-          "orgStandards": {
-            "requiredLabels": {
-              "team": "platform",
-              "app.kubernetes.io/managed-by": "my-org-tool"
-            }
-          }
-        } if {
-          input.environment == "production"
-        }
-      `;
-      writeFileSync(join(policyDir, 'org-labels.rego'), orgPolicy);
-
-      const policyResult = await loadAndMergePolicies(
-        [join(policyDir, 'org-labels.rego')],
-        createLogger({ name: 'test', level: 'silent' })
-      );
-      expect(policyResult.ok).toBe(true);
-      if (!policyResult.ok) return;
-
-      const ctx = createToolContext(createLogger({ name: 'test', level: 'silent' }), {
-        policy: policyResult.value,
-      });
-
-      const result = await generateK8sManifestsTool.handler(
-        {
-          repositoryPath: testDir,
-          manifestType: 'deployment',
-          imageName: 'test-app:latest',
-          appName: 'test-app',
-          environment: 'production',
-        },
-        ctx
-      );
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const plan = result.value;
-        expect(plan.attributionLabels).toBeDefined();
-        expect(plan.attributionLabels!.labels['app.kubernetes.io/managed-by']).toBe('my-org-tool');
-        expect(plan.attributionLabels!.labels['team']).toBe('platform');
-        expect(plan.attributionLabels!.labels['app.kubernetes.io/name']).toBeDefined();
-        expect(plan.attributionLabels!.annotations['containerization-assist.io/version']).toBeDefined();
+        expect(plan.attributionLabels!.annotations['containerization-assist.io/version']).not.toBe('unknown');
       }
     });
   });

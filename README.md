@@ -260,30 +260,27 @@ Interactive workflow tools that return step-by-step plans (output is collapsed b
 | `kind-loop` | Local dev loop: analyze → build → scan → deploy to Kind | `namespace` (optional), `imageName` (optional) |
 | `aks-loop` | Remote dev loop: analyze → build → push → deploy to AKS | `registry`, `resourceGroup`, `clusterName` (required); `namespace`, `imageName` (optional) |
 
-### Attribution Labels & Annotations
+### Version Tracking
 
-All generated artifacts include attribution metadata so you can track which resources were created by containerization-assist.
+All generated artifacts include a version annotation so you can track which version of containerization-assist produced them.
 
 **Dockerfiles** (`generate-dockerfile`):
 
-The tool output includes `attributionLabels.labels` with [OCI-standard](https://github.com/opencontainers/image-spec/blob/main/annotations.md) image labels. These are included as `LABEL` instructions in the generated Dockerfile:
+The tool output includes `attributionLabels.labels` with an [OCI-standard](https://github.com/opencontainers/image-spec/blob/main/annotations.md) version label, included as a `LABEL` instruction in the generated Dockerfile:
 
 | Label | Value | Purpose |
 |-------|-------|---------|
-| `org.opencontainers.image.created-by` | `containerization-assist` | Identifies the tool that generated the Dockerfile |
 | `org.opencontainers.image.version` | Package version (e.g., `1.4.0`) | Version of containerization-assist used |
 
 **Kubernetes Manifests** (`generate-k8s-manifests`):
 
-The tool output includes `attributionLabels.labels` and `attributionLabels.annotations` applied to all generated Kubernetes resource metadata:
+The tool output includes `attributionLabels.annotations` applied to all generated Kubernetes resource metadata:
 
 | Type | Key | Value | Purpose |
 |------|-----|-------|---------|
-| Label | `app.kubernetes.io/managed-by` | `containerization-assist` | Standard K8s recommended label for tracking managing tool |
-| Label | `app.kubernetes.io/name` | App name from input | Identifies the application |
 | Annotation | `containerization-assist.io/version` | Package version (e.g., `1.4.0`) | Version of containerization-assist used |
 
-**Policy Override:** Organizations can override or extend the default labels via the policy system's `orgStandards.requiredLabels` configuration. Policy-defined labels take precedence over defaults.
+Organizations can add custom labels via the policy system's `orgStandards.requiredLabels` configuration.
 
 ## Supported Technologies
 

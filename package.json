@@ -87,7 +87,8 @@
   ],
   "scripts": {
     "clean": "rm -rf dist dist-cjs coverage .tsbuildinfo*",
-    "build": "npm run clean && npm run build:knowledge && npm run build:policies && npm run build:esm && npm run build:cjs",
+    "build": "npm run clean && npm run build:version && npm run build:knowledge && npm run build:policies && npm run build:esm && npm run build:cjs",
+    "build:version": "tsx scripts/generate-version.ts",
     "build:knowledge": "tsx scripts/generate-embedded-packs.ts",
     "build:policies": "tsx scripts/build-policies.ts",
     "build:esm": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json --resolve-full-paths && chmod +x dist/src/cli/cli.js",

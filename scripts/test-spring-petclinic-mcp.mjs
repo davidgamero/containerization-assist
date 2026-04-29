@@ -237,16 +237,16 @@ async function runTests() {
     console.error(`✅ Found ${mentionedDistroLessImages.length} distroless image(s) mentioned in output.`);
     console.error(mentionedDistroLessImages.map(img => `  - ${img}`).join('\n'));
 
-    console.error('\n--- Test 3b: Verify Dockerfile attribution labels ---');
-    if (!dockerfileText.includes('org.opencontainers.image.created-by')) {
-      throw new Error('generate-dockerfile output missing org.opencontainers.image.created-by label');
+    console.error('\n--- Test 3b: Verify Dockerfile version label ---');
+    if (!dockerfileText.includes('org.opencontainers.image.version')) {
+      throw new Error('generate-dockerfile output missing org.opencontainers.image.version label');
     }
-    if (!dockerfileText.includes('containerization-assist')) {
-      throw new Error('generate-dockerfile output missing containerization-assist attribution');
+    if (dockerfileText.includes('version: unknown') || dockerfileText.includes('version": "unknown')) {
+      throw new Error('generate-dockerfile attribution has version "unknown" - package version resolution failed');
     }
-    console.error('✅ generate-dockerfile includes OCI attribution labels.');
+    console.error('✅ generate-dockerfile includes OCI version label.');
 
-    console.error('\n--- Test 4: generate-k8s-manifests attribution metadata ---');
+    console.error('\n--- Test 4: generate-k8s-manifests version annotation ---');
 
     const k8sResponse = await callTool('generate-k8s-manifests', {
       repositoryPath: REPO_PATH,
@@ -264,19 +264,13 @@ async function runTests() {
     const k8sText = extractNaturalLanguageResultText(k8sResult);
     const k8sTime = k8sResponse.executionTime;
 
-    if (!k8sText.includes('app.kubernetes.io/managed-by')) {
-      throw new Error('generate-k8s-manifests output missing app.kubernetes.io/managed-by label');
-    }
-    if (!k8sText.includes('containerization-assist')) {
-      throw new Error('generate-k8s-manifests output missing containerization-assist attribution');
-    }
     if (!k8sText.includes('containerization-assist.io/version')) {
       throw new Error('generate-k8s-manifests output missing containerization-assist.io/version annotation');
     }
-    if (!k8sText.includes('attributionLabels') && !k8sText.includes('Attribution')) {
-      throw new Error('generate-k8s-manifests output missing attributionLabels section');
+    if (!k8sText.includes('attributionLabels') && !k8sText.includes('Version Annotation')) {
+      throw new Error('generate-k8s-manifests output missing version annotation section');
     }
-    console.error('✅ generate-k8s-manifests includes attribution labels and annotations.');
+    console.error('✅ generate-k8s-manifests includes version annotation.');
 
     console.error('\n=== ALL TESTS PASSED ===');
     console.error(`\n⏱️  Total execution time: ${analyzeTime + dockerfileTime + k8sTime}ms`);

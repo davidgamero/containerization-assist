@@ -149,7 +149,7 @@ export interface DockerfilePlan {
   };
   confidence: number;
   summary: string;
-  /** OCI-standard labels to include as LABEL instructions in the generated Dockerfile */
+  /** OCI-standard version label to include as a LABEL instruction in the generated Dockerfile */
   attributionLabels?: {
     labels: Record<string, string>;
   };

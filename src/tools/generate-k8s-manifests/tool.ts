@@ -41,36 +41,16 @@ import {
 } from '@/lib/policy-helpers';
 import { generateK8sManifestsToolDefinition } from './types';
 import { validatePathOrFail } from '@/lib/validation-helpers';
-import {
-  PACKAGE_VERSION,
-  TOOL_NAME,
-  K8S_LABEL_MANAGED_BY,
-  K8S_LABEL_NAME,
-  K8S_ANNOTATION_VERSION,
-} from '@/lib/package-version';
+import { PACKAGE_VERSION, K8S_ANNOTATION_VERSION } from '@/lib/package-version';
 
 const { name } = generateK8sManifestsToolDefinition;
 
-function buildAttributionMetadata(
-  appName: string | undefined,
-  policyLabels?: Record<string, string>,
-): { labels: Record<string, string>; annotations: Record<string, string> } {
-  const labels: Record<string, string> = {
-    [K8S_LABEL_MANAGED_BY]: TOOL_NAME,
+function buildAttributionMetadata(): { annotations: Record<string, string> } {
+  return {
+    annotations: {
+      [K8S_ANNOTATION_VERSION]: PACKAGE_VERSION,
+    },
   };
-  if (appName) {
-    labels[K8S_LABEL_NAME] = appName;
-  }
-
-  if (policyLabels) {
-    Object.assign(labels, policyLabels);
-  }
-
-  const annotations: Record<string, string> = {
-    [K8S_ANNOTATION_VERSION]: PACKAGE_VERSION,
-  };
-
-  return { labels, annotations };
 }
 
 /**
@@ -190,12 +170,6 @@ function planToManifestText(plan: ManifestPlan, manifestType: string): string {
     lines.push('kind: Deployment');
     lines.push('metadata:');
     lines.push(`  name: ${plan.repositoryInfo?.name || 'app'}`);
-    if (plan.attributionLabels?.labels) {
-      lines.push('  labels:');
-      for (const [key, value] of Object.entries(plan.attributionLabels.labels)) {
-        lines.push(`    ${key}: ${value}`);
-      }
-    }
     if (plan.attributionLabels?.annotations) {
       lines.push('  annotations:');
       for (const [key, value] of Object.entries(plan.attributionLabels.annotations)) {
@@ -396,7 +370,7 @@ const runPattern = createKnowledgeTool<
 
         const nextAction: ToolNextAction = {
           action: 'create-files',
-          instruction: `Create Kubernetes manifests in ./k8s directory by converting the ACA manifest using field mappings from recommendations.fieldMappings. Apply security considerations from recommendations.securityConsiderations and best practices from recommendations.bestPractices. Reference the acaAnalysis for container app structure. Apply labels and annotations from attributionLabels.labels and attributionLabels.annotations to all resource metadata.`,
+          instruction: `Create Kubernetes manifests in ./k8s directory by converting the ACA manifest using field mappings from recommendations.fieldMappings. Apply security considerations from recommendations.securityConsiderations and best practices from recommendations.bestPractices. Reference the acaAnalysis for container app structure. Apply annotations from attributionLabels.annotations to all resource metadata.`,
           files: manifestFiles,
         };
 
@@ -416,7 +390,7 @@ const runPattern = createKnowledgeTool<
           nextAction,
           acaAnalysis: analysis,
           manifestType: 'kubernetes',
-          attributionLabels: buildAttributionMetadata(analysis.containerApps[0]?.name),
+          attributionLabels: buildAttributionMetadata(),
           recommendations: {
             fieldMappings,
             securityConsiderations: securityMatches,
@@ -498,7 +472,7 @@ const runPattern = createKnowledgeTool<
 
       const nextAction: ToolNextAction = {
         action: 'create-files',
-        instruction: `Create ${input.manifestType} manifests in ./k8s directory for ${input.name}. Use security considerations from recommendations.securityConsiderations, resource management from recommendations.resourceManagement, and best practices from recommendations.bestPractices. Reference repositoryInfo for application details like language, frameworks, ports, and entry point. Use detectedDependencies (if provided in input) for dependency-aware manifest configuration. Apply labels and annotations from attributionLabels.labels and attributionLabels.annotations to all resource metadata.${policyInstruction}`,
+        instruction: `Create ${input.manifestType} manifests in ./k8s directory for ${input.name}. Use security considerations from recommendations.securityConsiderations, resource management from recommendations.resourceManagement, and best practices from recommendations.bestPractices. Reference repositoryInfo for application details like language, frameworks, ports, and entry point. Use detectedDependencies (if provided in input) for dependency-aware manifest configuration. Apply annotations from attributionLabels.annotations to all resource metadata.${policyInstruction}`,
         files: manifestFiles,
       };
 
@@ -536,10 +510,7 @@ const runPattern = createKnowledgeTool<
           targetPlatform: input.targetPlatform,
         } as RepositoryInfo,
         manifestType: input.manifestType,
-        attributionLabels: buildAttributionMetadata(
-          input.name,
-          input.k8sConfig?.orgStandards?.requiredLabels,
-        ),
+        attributionLabels: buildAttributionMetadata(),
         recommendations: {
           securityConsiderations: securityMatches,
           resourceManagement: resourceMatches,

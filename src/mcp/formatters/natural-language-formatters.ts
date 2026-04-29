@@ -341,9 +341,9 @@ export function formatDockerfilePlanNarrative(
     }
   }
 
-  // Attribution labels
+  // Attribution version label
   if (plan.attributionLabels) {
-    parts.push(`\n**Attribution Labels (LABEL instructions):**`);
+    parts.push(`\n**Version Label (LABEL instruction):**`);
     for (const [key, value] of Object.entries(plan.attributionLabels.labels)) {
       parts.push(`  ${key}: ${value}`);
     }
@@ -894,17 +894,11 @@ export function formatGenerateK8sManifestsNarrative(
     }
   }
 
-  // Attribution labels and annotations
-  if (result.attributionLabels) {
-    parts.push(`\n**Attribution Labels:**`);
-    for (const [key, value] of Object.entries(result.attributionLabels.labels)) {
+  // Version annotation
+  if (result.attributionLabels?.annotations) {
+    parts.push(`\n**Version Annotation:**`);
+    for (const [key, value] of Object.entries(result.attributionLabels.annotations)) {
       parts.push(`  ${key}: ${value}`);
-    }
-    if (result.attributionLabels.annotations) {
-      parts.push(`\n**Attribution Annotations:**`);
-      for (const [key, value] of Object.entries(result.attributionLabels.annotations)) {
-        parts.push(`  ${key}: ${value}`);
-      }
     }
   }
 

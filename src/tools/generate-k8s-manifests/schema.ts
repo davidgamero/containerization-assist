@@ -197,9 +197,8 @@ export interface ManifestPlan {
     warnings: string[];
   };
   manifestType: 'kubernetes' | 'helm' | 'aca' | 'kustomize';
-  /** Attribution labels and annotations to apply to all generated Kubernetes resources */
+  /** Version annotation to apply to all generated Kubernetes resources */
   attributionLabels?: {
-    labels: Record<string, string>;
     annotations: Record<string, string>;
   };
   recommendations: {
