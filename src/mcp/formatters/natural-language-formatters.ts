@@ -342,7 +342,7 @@ export function formatDockerfilePlanNarrative(
   }
 
   // Attribution version label
-  if (plan.attributionLabels) {
+  if (plan.attributionLabels?.labels) {
     parts.push(`\n**Version Label (LABEL instruction):**`);
     for (const [key, value] of Object.entries(plan.attributionLabels.labels)) {
       parts.push(`  ${key}: ${value}`);

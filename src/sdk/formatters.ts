@@ -239,7 +239,7 @@ function formatGenerateDockerfileResultProse(
   }
 
   // Version label
-  if (result.attributionLabels) {
+  if (result.attributionLabels?.labels) {
     const labelList = Object.entries(result.attributionLabels.labels)
       .map(([key, value]) => `- \`${key}\`: ${value}`)
       .join('\n');

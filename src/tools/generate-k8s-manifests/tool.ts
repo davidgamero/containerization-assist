@@ -173,7 +173,7 @@ function planToManifestText(plan: ManifestPlan, manifestType: string): string {
     if (plan.attributionLabels?.annotations) {
       lines.push('  annotations:');
       for (const [key, value] of Object.entries(plan.attributionLabels.annotations)) {
-        lines.push(`    ${key}: ${value}`);
+        lines.push(`    ${key}: "${value}"`);
       }
     }
     lines.push('spec:');
