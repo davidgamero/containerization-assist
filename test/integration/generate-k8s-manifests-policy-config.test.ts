@@ -392,9 +392,8 @@ describe('generate-k8s-manifests with policy configuration', () => {
       const result = await generateK8sManifestsTool.handler(
         {
           repositoryPath: testDir,
-          manifestType: 'deployment',
-          imageName: 'test-app:latest',
-          appName: 'test-app',
+          manifestType: 'kubernetes',
+          name: 'test-app',
           environment: 'production',
         },
         ctx
@@ -440,9 +439,8 @@ describe('generate-k8s-manifests with policy configuration', () => {
       const result = await generateK8sManifestsTool.handler(
         {
           repositoryPath: testDir,
-          manifestType: 'deployment',
-          imageName: 'test-app:latest',
-          appName: 'test-app',
+          manifestType: 'kubernetes',
+          name: 'test-app',
           environment: 'production',
         },
         ctx
