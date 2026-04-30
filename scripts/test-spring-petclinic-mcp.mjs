@@ -238,8 +238,8 @@ async function runTests() {
     console.error(mentionedDistroLessImages.map(img => `  - ${img}`).join('\n'));
 
     console.error('\n--- Test 3b: Verify Dockerfile version label ---');
-    if (!dockerfileText.includes('org.opencontainers.image.version')) {
-      throw new Error('generate-dockerfile output missing org.opencontainers.image.version label');
+    if (!dockerfileText.includes('com.azure.containerizationassist.version')) {
+      throw new Error('generate-dockerfile output missing com.azure.containerizationassist.version label');
     }
     if (dockerfileText.includes('version: unknown') || dockerfileText.includes('version": "unknown')) {
       throw new Error('generate-dockerfile attribution has version "unknown" - package version resolution failed');
@@ -264,8 +264,8 @@ async function runTests() {
     const k8sText = extractNaturalLanguageResultText(k8sResult);
     const k8sTime = k8sResponse.executionTime;
 
-    if (!k8sText.includes('containerization-assist.io/version')) {
-      throw new Error('generate-k8s-manifests output missing containerization-assist.io/version annotation');
+    if (!k8sText.includes('com.azure.containerizationassist.version')) {
+      throw new Error('generate-k8s-manifests output missing com.azure.containerizationassist/version annotation');
     }
     if (!k8sText.includes('attributionLabels') && !k8sText.includes('Version Annotation')) {
       throw new Error('generate-k8s-manifests output missing version annotation section');

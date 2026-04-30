@@ -266,11 +266,11 @@ All generated artifacts include a version annotation so you can track which vers
 
 **Dockerfiles** (`generate-dockerfile`):
 
-The tool output includes `attributionLabels.labels` with an [OCI-standard](https://github.com/opencontainers/image-spec/blob/main/annotations.md) version label, included as a `LABEL` instruction in the generated Dockerfile:
+The tool output includes `attributionLabels.labels` with a version label, included as a `LABEL` instruction in the generated Dockerfile:
 
 | Label | Value | Purpose |
 |-------|-------|---------|
-| `org.opencontainers.image.version` | Package version (e.g., `1.4.0`) | Version of containerization-assist used |
+| `com.azure.containerizationassist.version` | Package version (e.g., `1.4.0`) | Version of containerization-assist used |
 
 **Kubernetes Manifests** (`generate-k8s-manifests`):
 
@@ -278,7 +278,7 @@ The tool output includes `attributionLabels.annotations` applied to all generate
 
 | Type | Key | Value | Purpose |
 |------|-----|-------|---------|
-| Annotation | `containerization-assist.io/version` | Package version (e.g., `1.4.0`) | Version of containerization-assist used |
+| Annotation | `com.azure.containerizationassist/version` | Package version (e.g., `1.4.0`) | Version of containerization-assist used |
 
 Organizations can add custom labels via the policy system's `orgStandards.requiredLabels` configuration.
 
