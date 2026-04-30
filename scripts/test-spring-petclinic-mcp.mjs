@@ -264,7 +264,7 @@ async function runTests() {
     const k8sText = extractNaturalLanguageResultText(k8sResult);
     const k8sTime = k8sResponse.executionTime;
 
-    if (!k8sText.includes('com.azure.containerizationassist.version')) {
+    if (!k8sText.includes('com.azure.containerizationassist/version')) {
       throw new Error('generate-k8s-manifests output missing com.azure.containerizationassist/version annotation');
     }
     if (!k8sText.includes('attributionLabels') && !k8sText.includes('Version Annotation')) {
