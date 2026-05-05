@@ -614,7 +614,7 @@ const runPattern = createKnowledgeTool<
       const nextAction: ToolNextAction = existingDockerfile
         ? {
             action: 'update-files',
-            instruction: `Update the existing Dockerfile at ${relativeDockerfilePath} by applying the enhancement recommendations. Preserve the items listed in existingDockerfile.guidance.preserve, make improvements from existingDockerfile.guidance.improve, and add missing features from existingDockerfile.guidance.addMissing. Use the base images, security considerations, optimizations, and best practices from recommendations. Include the LABEL instruction from attributionLabels.labels for OCI-standard version tracking.`,
+            instruction: `Update the existing Dockerfile at ${relativeDockerfilePath} by applying the enhancement recommendations. Preserve the items listed in existingDockerfile.guidance.preserve, make improvements from existingDockerfile.guidance.improve, and add missing features from existingDockerfile.guidance.addMissing. Use the base images, security considerations, optimizations, and best practices from recommendations. Include the LABEL instruction from attributionLabels.labels for version tracking.`,
             files: [
               {
                 path: relativeDockerfilePath,
@@ -624,7 +624,7 @@ const runPattern = createKnowledgeTool<
           }
         : {
             action: 'create-files',
-            instruction: `Create a new Dockerfile at ${relativeDockerfilePath} using the base images, security considerations, optimizations, and best practices from recommendations. Follow the ${rules.buildStrategy.multistage ? 'multi-stage' : 'single-stage'} build strategy described in recommendations.buildStrategy. Include the LABEL instruction from attributionLabels.labels for OCI-standard version tracking.`,
+            instruction: `Create a new Dockerfile at ${relativeDockerfilePath} using the base images, security considerations, optimizations, and best practices from recommendations. Follow the ${rules.buildStrategy.multistage ? 'multi-stage' : 'single-stage'} build strategy described in recommendations.buildStrategy. Include the LABEL instruction from attributionLabels.labels for version tracking.`,
             files: [
               {
                 path: relativeDockerfilePath,

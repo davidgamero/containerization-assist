@@ -262,7 +262,7 @@ Interactive workflow tools that return step-by-step plans (output is collapsed b
 
 ### Version Tracking
 
-All generated artifacts include a version annotation so you can track which version of containerization-assist produced them.
+All generated artifacts include version metadata so you can track which version of containerization-assist produced them.
 
 **Dockerfiles** (`generate-dockerfile`):
 

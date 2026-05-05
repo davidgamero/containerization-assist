@@ -244,7 +244,7 @@ async function runTests() {
     if (dockerfileText.includes('version: unknown') || dockerfileText.includes('version": "unknown')) {
       throw new Error('generate-dockerfile attribution has version "unknown" - package version resolution failed');
     }
-    console.error('✅ generate-dockerfile includes OCI version label.');
+    console.error('✅ generate-dockerfile includes version label.');
 
     console.error('\n--- Test 4: generate-k8s-manifests version annotation ---');
 

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,5 +13,12 @@ export const GENERATED_PACKAGE_VERSION = '${packageJson.version}';
 `;
 
 const outputPath = join(scriptDir, '../src/lib/generated-version.ts');
-writeFileSync(outputPath, output);
-console.log(`Generated ${outputPath} with version ${packageJson.version}`);
+
+// Only write if content has changed to avoid unnecessary file system churn
+const existing = existsSync(outputPath) ? readFileSync(outputPath, 'utf-8') : '';
+if (existing !== output) {
+  writeFileSync(outputPath, output);
+  console.log(`Generated ${outputPath} with version ${packageJson.version}`);
+} else {
+  console.log(`${outputPath} is up to date (version ${packageJson.version})`);
+}

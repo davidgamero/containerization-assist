@@ -403,8 +403,9 @@ describe('generate-k8s-manifests with policy configuration', () => {
       if (result.ok) {
         const plan = result.value;
         expect(plan.attributionLabels).toBeDefined();
-        expect(plan.attributionLabels!.annotations['com.azure.containerizationassist/version']).toBeDefined();
-        expect(plan.attributionLabels!.annotations['com.azure.containerizationassist/version']).not.toBe('unknown');
+        const version = plan.attributionLabels!.annotations['com.azure.containerizationassist/version'];
+        expect(version).toBeDefined();
+        expect(version).toMatch(/^\d+\.\d+\.\d+/);
       }
     });
   });

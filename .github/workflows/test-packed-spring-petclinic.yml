@@ -102,7 +102,7 @@ jobs:
             echo "  - ✅ analyze-repo via JSON-RPC" >> $GITHUB_STEP_SUMMARY
             echo "  - ✅ generate-dockerfile via JSON-RPC" >> $GITHUB_STEP_SUMMARY
             echo "  - ✅ azurelinux images verified" >> $GITHUB_STEP_SUMMARY
-            echo "  - ✅ Dockerfile OCI version label verified" >> $GITHUB_STEP_SUMMARY
+            echo "  - ✅ Dockerfile version label verified" >> $GITHUB_STEP_SUMMARY
             echo "  - ✅ generate-k8s-manifests version annotation verified" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **MCP CLI Test**: Failed" >> $GITHUB_STEP_SUMMARY
