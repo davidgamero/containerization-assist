@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Azure/containerization-assist",
+  "version": "1.4.0",
+  "description": "TypeScript MCP server for AI-powered containerization workflows with Docker and Kubernetes support",
+  "title": "Containerization Assist",
+  "websiteUrl": "https://github.com/Azure/containerization-assist#readme",
+  "repository": {
+    "source": "github",
+    "url": "https://github.com/Azure/containerization-assist"
+  },
+  "packages": [
+    {
+      "identifier": "containerization-assist-mcp",
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "version": "1.4.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "start"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DOCKER_SOCKET",
+          "description": "Docker socket path or named pipe",
+          "isRequired": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging level (debug, info, warn, error)",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

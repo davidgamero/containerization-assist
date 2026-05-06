@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   environment,
   repositoryPath,
+  workspacePath,
   platform,
   DOCKER_PLATFORMS,
   type DockerPlatform,
@@ -21,6 +22,7 @@ export const generateDockerfileSchema = z.object({
   repositoryPath: repositoryPath.describe(
     'Repository path (automatically normalized to forward slashes on all platforms).',
   ),
+  workspacePath: workspacePath.optional(),
   modulePath: z
     .string()
     .optional()
@@ -31,7 +33,9 @@ export const generateDockerfileSchema = z.object({
   languageVersion: z
     .string()
     .optional()
-    .describe('Language version (e.g., "17", "3.11", "20"). For Java, this is the java.version from pom.xml or sourceCompatibility from build.gradle.'),
+    .describe(
+      'Language version (e.g., "17", "3.11", "20"). For Java, this is the java.version from pom.xml or sourceCompatibility from build.gradle.',
+    ),
   framework: z.string().optional().describe('Framework used (e.g., "spring", "django")'),
   environment: environment.describe('Target environment (production, development, etc.)'),
   detectedDependencies: z
@@ -46,11 +50,15 @@ export const generateDockerfileSchema = z.object({
   trafficLevel: z
     .enum(['high', 'medium', 'low'])
     .optional()
-    .describe('Expected traffic level for dynamic defaults calculation (affects replica counts and scaling).'),
+    .describe(
+      'Expected traffic level for dynamic defaults calculation (affects replica counts and scaling).',
+    ),
   criticalityTier: z
     .enum(['tier-1', 'tier-2', 'tier-3'])
     .optional()
-    .describe('Criticality tier for dynamic defaults calculation (tier-1=mission-critical, tier-3=low-priority).'),
+    .describe(
+      'Criticality tier for dynamic defaults calculation (tier-1=mission-critical, tier-3=low-priority).',
+    ),
 });
 
 export type GenerateDockerfileParams = z.infer<typeof generateDockerfileSchema>;
@@ -141,6 +149,10 @@ export interface DockerfilePlan {
   };
   confidence: number;
   summary: string;
+  /** Version label to include as a LABEL instruction in the generated Dockerfile */
+  attributionLabels?: {
+    labels: Record<string, string>;
+  };
   existingDockerfile?: {
     path: string;
     content: string;

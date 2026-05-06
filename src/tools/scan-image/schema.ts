@@ -3,9 +3,11 @@
  */
 
 import { z } from 'zod';
+import { workspacePath } from '../shared/schemas';
 
 export const scanImageSchema = z.object({
   imageId: z.string().describe('Docker image ID or name to scan'),
+  workspacePath: workspacePath.optional(),
   severity: z
     .union([
       z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']),
@@ -18,9 +20,16 @@ export const scanImageSchema = z.object({
     .default('vulnerability') // Added default
     .describe('Type of scan to perform'),
   scanner: z
-    .enum(['trivy', 'snyk', 'grype'])
-    .default('trivy') // Added default
+    .enum(['trivy', 'snyk', 'grype', 'osv'])
+    .default('osv') // Changed default to osv
     .describe('Scanner to use for vulnerability detection'),
+  context: z
+    .string()
+    .optional()
+    .describe(
+      'Docker context to scan in. Use a specific context name (e.g., "colima", "desktop-linux") ' +
+        'to target that Docker daemon. If not specified, auto-detects via DOCKER_HOST env var and well-known socket paths.',
+    ),
   enableAISuggestions: z
     .boolean()
     .default(true)

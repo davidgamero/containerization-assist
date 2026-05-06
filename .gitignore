@@ -30,20 +30,29 @@ build/
 .tsbuildinfo*
 *.tgz
 
+# Generated files (rebuilt during build)
+src/knowledge/embedded-packs.ts
+src/lib/generated-version.ts
+
 # Policy build intermediates (keep *.wasm files - they ship with package)
 policies/compiled/*.tar.gz
 policies/compiled/temp/
 
-# User-customized policies (local overrides)
+# User-customized policies (project-local at git root)
+.containerization-assist/
+
+# User-customized policies (local overrides) - DEPRECATED: Use .containerization-assist/policy/ instead
 policies.user/
 
-# User policy test files
+# User policy test files - DEPRECATED: Use .containerization-assist/policy/ instead
 policies.user/**/*_test.rego
 
 # Test
 coverage/
 .nyc_output/
 WEEK5_PERFORMANCE_*.json
+policy-test-results.json
+scan-image-test-results.json
 
 # Test-generated fixture files
 test/__support__/fixtures/*/Dockerfile
@@ -79,3 +88,7 @@ k8s
 knip-deadcode-output.txt
 quality-gates-test.txt
 coverage-lib
+# VitePress
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+.validated-action-refs

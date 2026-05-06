@@ -11,7 +11,7 @@
  * - Server diagnostics and metadata
  *
  * **NOT for:**
- * - Application containerization (use build-image, etc.)
+ * - Application containerization (use build-image-context, etc.)
  * - Docker operations (use Docker tools)
  * - Kubernetes operations (use K8s tools)
  *
@@ -22,16 +22,29 @@ import * as os from 'os';
 import { extractErrorMessage } from '@/lib/errors';
 import { setupToolContext } from '@/lib/tool-context-helpers';
 import { Success, Failure, type Result } from '@/types';
-import type { ToolContext } from '@/mcp/context';
+import type { ToolContext } from '@/core/context';
 import { opsToolSchema } from './schema';
 import type { z } from 'zod';
 import { formatDuration, formatTimestamp } from '@/lib/summary-helpers';
+import { opsToolDefinition } from './types';
+import { discoverPolicies, getPolicySearchPaths } from '@/app/orchestrator';
 
 interface PingConfig {
   message?: string;
 }
 
+/**
+ * Result of a ping operation.
+ *
+ * Uses a discriminant field `kind` to enable type-safe narrowing
+ * when working with the OpsResult union type.
+ */
 export interface PingResult {
+  /**
+   * Discriminant field for type narrowing.
+   * Always 'ping' for PingResult.
+   */
+  readonly kind: 'ping';
   /**
    * Natural language summary for user display.
    * 1-3 sentences describing the ping result.
@@ -69,6 +82,7 @@ export async function ping(config: PingConfig, context: ToolContext): Promise<Re
     const summary = `✅ Server is responsive. Ping successful at ${formatTimestamp(timestamp)}.`;
 
     const result: PingResult = {
+      kind: 'ping' as const,
       summary,
       success: true,
       message: `pong: ${message}`,
@@ -100,9 +114,21 @@ export async function ping(config: PingConfig, context: ToolContext): Promise<Re
 
 interface ServerStatusConfig {
   details?: boolean;
+  workspacePath?: string;
 }
 
+/**
+ * Result of a server status operation.
+ *
+ * Uses a discriminant field `kind` to enable type-safe narrowing
+ * when working with the OpsResult union type.
+ */
 export interface ServerStatusResult {
+  /**
+   * Discriminant field for type narrowing.
+   * Always 'status' for ServerStatusResult.
+   */
+  readonly kind: 'status';
   /**
    * Natural language summary for user display.
    * 1-3 sentences describing the server status.
@@ -133,6 +159,11 @@ export interface ServerStatusResult {
     migrated: number;
   };
   sessions?: number;
+  policies?: {
+    total: number;
+    files: Array<{ path: string; source: string }>;
+    searchPaths: Array<{ path: string; source: string; exists: boolean }>;
+  };
 }
 
 /**
@@ -166,7 +197,13 @@ export async function serverStatus(
     const uptimeStr = formatDuration(uptime);
     const summary = `✅ Server healthy. Running for ${uptimeStr}. Memory: ${memPercentage}% used, CPU: ${cpus.length} cores.`;
 
+    // Discover policies for status display
+    const workspacePath = config.workspacePath;
+    const discoveredPolicies = discoverPolicies(logger, workspacePath);
+    const searchPaths = getPolicySearchPaths(logger, workspacePath);
+
     const status: ServerStatusResult = {
+      kind: 'status' as const,
       summary,
       success: true,
       version,
@@ -190,6 +227,11 @@ export async function serverStatus(
       tools: {
         count: 14,
         migrated: migratedToolCount,
+      },
+      policies: {
+        total: discoveredPolicies.length,
+        files: discoveredPolicies.map((p) => ({ path: p.path, source: p.source })),
+        searchPaths: searchPaths.map((sp) => ({ path: sp.path, source: sp.source, exists: sp.exists })),
       },
     };
 
@@ -240,14 +282,18 @@ async function handleOps(
       return ping({ ...(input.message !== undefined && { message: input.message }) }, context);
     case 'status':
       return serverStatus(
-        { ...(input.details !== undefined && { details: input.details }) },
+        {
+          ...(input.details !== undefined && { details: input.details }),
+          ...(input.workspacePath !== undefined && { workspacePath: input.workspacePath }),
+        },
         context,
       );
     default:
       return Failure(`Unknown operation: ${input.operation}`, {
         message: `Unknown operation: ${input.operation}`,
         hint: 'The requested operation is not supported',
-        resolution: 'Use one of the supported operations: "ping" for connectivity testing or "status" for server information',
+        resolution:
+          'Use one of the supported operations: "ping" for connectivity testing or "status" for server information',
       });
   }
 }
@@ -258,13 +304,6 @@ async function handleOps(
 import { tool } from '@/types/tool';
 
 export default tool({
-  name: 'ops',
-  description: 'MCP server diagnostics: ping for connectivity testing, status for health metrics (memory, CPU, uptime). Use this for server monitoring, not application containerization.',
-  category: 'utility',
-  version: '2.0.0',
-  schema: opsToolSchema,
-  metadata: {
-    knowledgeEnhanced: false,
-  },
+  ...opsToolDefinition,
   handler: handleOps,
 });

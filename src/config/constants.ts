@@ -16,6 +16,14 @@ export const ENV_VARS = {
 } as const;
 
 /**
+ * Policy directory configuration for 4-tier discovery system
+ */
+export const POLICY_PROJECT_DIR = '.containerization-assist';
+export const POLICY_SUBDIR = 'policy';
+export const POLICY_GLOBAL_APP_NAME = 'containerization-assist';
+export const POLICY_LEGACY_DIR = ['policies', 'user'].join('.');
+
+/**
  * Environment Schema
  * Zod schema for environment validation across the application.
  */
@@ -91,8 +99,8 @@ export const LIMITS = {
   MAX_MANIFEST_SIZE: 10_485_760,
   /** Maximum log lines to retain */
   MAX_LOG_LINES: 1000,
-  /** Maximum buffer size for scan results: 10MB */
-  MAX_SCAN_BUFFER: 10 * 1024 * 1024,
+  /** Maximum buffer size for scan results: 50MB (large for highly vulnerable test images) */
+  MAX_SCAN_BUFFER: 50 * 1024 * 1024,
   /** Maximum characters for AI prompt context */
   MAX_PROMPT_CHARS: 5000,
   /** Maximum snippets for AI prompt context */

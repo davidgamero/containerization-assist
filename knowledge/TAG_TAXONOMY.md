@@ -18,8 +18,8 @@ Used to filter knowledge by MCP tool context. These tags ensure that knowledge e
 - `fix-dockerfile` - Dockerfile validation and fixing recommendations
 - `scan-image` - Security scanning context and remediation
 - `verify-deploy` - Deployment verification checks
-- `deploy` - Deployment execution best practices
 - `generate-k8s-manifests` - Kubernetes manifest generation
+- `helm` - Helm chart generation and best practices
 - `prepare-cluster` - Cluster preparation and prerequisites
 
 **Usage:** Add tool tags to entries that are specifically relevant to certain tools. An entry can have multiple tool tags if it applies to multiple contexts.
@@ -310,6 +310,10 @@ Additionally, severity affects scoring:
 
 ## Version History
 
+### v1.1.0 (2026-04-08)
+- Added `helm` tool tag for Helm chart generation knowledge
+- Added Helm knowledge pack with 56 entries in the `kubernetes` category
+
 ### v1.0.0 (2025-10-21)
 - Initial tag taxonomy
 - Added tool tags (7 tools)
@@ -325,7 +329,7 @@ Additionally, severity affects scoring:
 - **Knowledge Schema:** `src/knowledge/schemas.ts`
 - **Knowledge Types:** `src/knowledge/types.ts`
 - **Sample Packs:** `knowledge/packs/`
-- **Project Guidelines:** `CLAUDE.md`
+- **Project Guidelines:** See [`README.md`](../../README.md) and [`CONTRIBUTING.md`](../../CONTRIBUTING.md) in the repository root
 
 ## Contributing
 

@@ -3,6 +3,8 @@
 # Exit codes for better debugging
 readonly EXIT_LINT_STAGED_FAILED=1
 readonly EXIT_EXAMPLES_FAILED=2
+readonly EXIT_VERSION_SYNC_FAILED=3
+readonly EXIT_ACTION_REFS_FAILED=4
 
 # Enable strict error handling
 set -eu
@@ -23,6 +25,51 @@ main() {
     if ! node scripts/validate-examples.js; then
         echo "❌ Examples validation failed"
         exit $EXIT_EXAMPLES_FAILED
+    fi
+
+    # Version sync guard — only when a version-carrying file is staged
+    VERSION_FILES="package.json package-lock.json server.json CHANGELOG.md"
+    STAGED=$(git diff --cached --name-only)
+    VERSION_STAGED=false
+    if [ -n "$STAGED" ]; then
+        while IFS= read -r staged_path; do
+            for f in $VERSION_FILES; do
+                if [ "$staged_path" = "$f" ]; then
+                    VERSION_STAGED=true
+                    break 2
+                fi
+            done
+        done <<EOF
+$STAGED
+EOF
+    fi
+
+    if [ "$VERSION_STAGED" = true ]; then
+        echo "🔢 Validating version sync across carriers..."
+        if ! npx tsx scripts/validate-version-sync.ts; then
+            echo "❌ Version sync validation failed"
+            exit $EXIT_VERSION_SYNC_FAILED
+        fi
+    fi
+
+    # Validate GitHub Action refs — skips gracefully if offline
+    WORKFLOW_STAGED=false
+    if [ -n "$STAGED" ]; then
+        while IFS= read -r staged_path; do
+            case "$staged_path" in
+                .github/workflows/*) WORKFLOW_STAGED=true; break ;;
+            esac
+        done <<WFEOF
+$STAGED
+WFEOF
+    fi
+
+    if [ "$WORKFLOW_STAGED" = true ]; then
+        echo "🔗 Validating GitHub Action refs..."
+        if ! npx tsx scripts/validate-action-refs.ts; then
+            echo "❌ Action ref validation failed"
+            exit $EXIT_ACTION_REFS_FAILED
+        fi
     fi
 
     echo "✅ Pre-commit checks passed!"

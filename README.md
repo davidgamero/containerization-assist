@@ -1,13 +1,22 @@
 # Containerization Assist MCP Server
 
-[![Test Pipeline](https://github.com/Azure/containerization-assist/workflows/Test%20Pipeline/badge.svg)](https://github.com/Azure/containerization-assist/actions/workflows/test-pipeline.yml)
-[![Version](https://img.shields.io/badge/version-0.0.1-orange.svg)](https://github.com/Azure/containerization-assist/blob/main/package.json)
-[![MCP SDK](https://img.shields.io/badge/MCP%20SDK-1.17.3-blueviolet.svg)](https://github.com/modelcontextprotocol/sdk)
-[![Node Version](https://img.shields.io/node/v/containerization-assist-mcp?color=brightgreen)](https://nodejs.org)
-
-<!-- When repo is public, use dynamic version: [![Version](https://img.shields.io/github/package-json/v/Azure/containerization-assist?color=orange)](https://github.com/Azure/containerization-assist/blob/main/package.json) -->
+[![Test Pipeline](https://github.com/Azure/containerization-assist/actions/workflows/test-pipeline.yml/badge.svg?branch=main)](https://github.com/Azure/containerization-assist/actions/workflows/test-pipeline.yml)
+[![Version](https://img.shields.io/github/package-json/v/Azure/containerization-assist?color=orange)](https://github.com/Azure/containerization-assist/releases)
+[![MCP SDK](https://img.shields.io/github/package-json/dependency-version/Azure/containerization-assist/@modelcontextprotocol/sdk?color=blueviolet&label=MCP%20SDK)](https://github.com/modelcontextprotocol/typescript-sdk)
+[![Node](https://img.shields.io/github/package-json/engines-node/Azure/containerization-assist?color=brightgreen&label=node)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/github/package-json/dependency-version/Azure/containerization-assist/dev/typescript?color=blue&label=TypeScript)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/github/license/Azure/containerization-assist?color=green)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://azure.github.io/containerization-assist/)
 
 An AI-powered containerization assistant that helps you build, scan, and deploy Docker containers through VS Code and other MCP-compatible tools.
+
+> **[Full documentation →](https://azure.github.io/containerization-assist/)**
+
+## Install
+
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Containerization_Assist_MCP-0098FF?style=flat-square&logo=visualstudiocode&logoColor=ffffff)](https://azure.github.io/containerization-assist/vscode-mcp-install-redirect.html)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Containerization_Assist_MCP-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=ffffff)](https://azure.github.io/containerization-assist/vscode-insiders-mcp-install-redirect.html)
 
 ## Features
 
@@ -21,14 +30,14 @@ An AI-powered containerization assistant that helps you build, scan, and deploy 
 - 📊 **Progress Tracking**: Real-time progress updates via MCP notifications
 - 🔒 **Security Scanning**: Built-in vulnerability scanning with AI-powered suggestions
 - ✨ **Smart Analysis**: Context-aware recommendations
-- **Policy-Driven System (v3.0)** 🆕
+- **Policy-Driven System (v3.0)**
   - Pre-generation configuration
   - Knowledge filtering and weighting
   - Template injection
   - Semantic validation
   - Cross-tool consistency
 
-### Policy System (v3.0) 🆕
+### Policy System (v3.0)
 
 Full control over containerization through Rego policies:
 
@@ -52,19 +61,18 @@ See [Policy Authoring Guide](docs/guides/policy-authoring.md) for details.
 - Optional: [Trivy](https://aquasecurity.github.io/trivy/latest/getting-started/installation/) (for security scanning features)
 - Optional: Kubernetes (for deployment features)
 
-## VS Code Setup
+## Manual Install
 
 Add the following to your VS Code settings or create `.vscode/mcp.json` in your project:
 
 ```json
 {
   "servers": {
-    "containerization-assist": {
+    "ca": {
       "command": "npx",
       "args": ["-y", "containerization-assist-mcp", "start"],
       "env": {
-        "DOCKER_SOCKET": "/var/run/docker.sock",
-        "LOG_LEVEL": "info"
+         "LOG_LEVEL": "info"
       }
     }
   }
@@ -72,6 +80,38 @@ Add the following to your VS Code settings or create `.vscode/mcp.json` in your 
 ```
 
 Restart VS Code to enable the MCP server in GitHub Copilot.
+
+### SDK Usage (Without MCP)
+
+For direct tool usage without MCP protocol (e.g., VS Code extensions, programmatic access):
+
+```typescript
+import { analyzeRepo, buildImageContext, scanImage } from 'containerization-assist-mcp/sdk';
+import { execSync } from 'child_process';
+
+// Simple function calls - no MCP server needed
+const analysis = await analyzeRepo({ repositoryPath: './myapp' });
+if (analysis.ok) {
+  console.log('Detected:', analysis.value.modules);
+}
+
+// buildImageContext returns build context with security analysis and commands
+const buildContext = await buildImageContext({ path: './myapp', imageName: 'myapp:v1', platform: 'linux/amd64' });
+if (buildContext.ok) {
+  const { securityAnalysis, nextAction } = buildContext.value;
+  console.log('Security risk:', securityAnalysis.riskLevel);
+  
+  // Execute the generated build command from the build context directory
+  execSync(nextAction.buildCommand.command, {
+    cwd: buildContext.value.context.buildContextPath,
+    env: { ...process.env, ...nextAction.buildCommand.environment }
+  });
+}
+
+const scan = await scanImage({ imageId: 'myapp:v1' });
+```
+
+See the [SDK integration examples](docs/examples/README.md) for full SDK documentation.
 
 ### Windows Users
 
@@ -94,9 +134,8 @@ This MCP server guides you through a complete containerization workflow for a si
 4. **Scan Image** → Identify security vulnerabilities and get remediation guidance
 5. **Tag Image** → Apply appropriate version tags to your image
 6. **Generate K8s Manifests** → Create deployment configurations for Kubernetes
-7. **Prepare Cluster** → Set up namespace and prerequisites (if needed)
-8. **Deploy** → Deploy your application to Kubernetes
-9. **Verify** → Confirm deployment health and readiness
+7. **Prepare Cluster** → Set up namespace and prerequisites, then deploy with `kubectl apply`
+8. **Verify** → Confirm deployment health and readiness
 
 ### Prerequisites
 
@@ -178,7 +217,7 @@ The server detects and supports monorepo structures with multiple independently 
 
 ## Available Tools
 
-The server provides 13 MCP tools organized by functionality:
+The server provides 11 MCP tools organized by functionality:
 
 ### Analysis & Planning
 | Tool | Description |
@@ -194,7 +233,7 @@ The server provides 13 MCP tools organized by functionality:
 ### Image Operations
 | Tool | Description |
 |------|-------------|
-| `build-image` | Build Docker images from Dockerfiles with security analysis |
+| `build-image-context` | Prepare Docker build context with security analysis and return build commands |
 | `scan-image` | Scan Docker images for security vulnerabilities with remediation guidance (uses Trivy CLI) |
 | `tag-image` | Tag Docker images with version and registry information |
 | `push-image` | Push Docker images to a registry |
@@ -210,6 +249,38 @@ The server provides 13 MCP tools organized by functionality:
 | Tool | Description |
 |------|-------------|
 | `ops` | Operational utilities for ping and server status |
+
+### Workflow Tools
+
+Interactive workflow tools that return step-by-step plans (output is collapsed by default in VS Code Copilot Chat):
+
+| Tool | Description | Inputs |
+|------|-------------|--------|
+| `create-containerization-policy` | Step-by-step guidance for authoring a custom OPA Rego policy | None |
+| `kind-loop` | Local dev loop: analyze → build → scan → deploy to Kind | `namespace` (optional), `imageName` (optional) |
+| `aks-loop` | Remote dev loop: analyze → build → push → deploy to AKS | `registry`, `resourceGroup`, `clusterName` (required); `namespace`, `imageName` (optional) |
+
+### Version Tracking
+
+All generated artifacts include version metadata so you can track which version of containerization-assist produced them.
+
+**Dockerfiles** (`generate-dockerfile`):
+
+The tool output includes `attributionLabels.labels` with a version label, included as a `LABEL` instruction in the generated Dockerfile:
+
+| Label | Value | Purpose |
+|-------|-------|---------|
+| `com.azure.containerizationassist.version` | Package version (e.g., `1.4.0`) | Version of containerization-assist used |
+
+**Kubernetes Manifests** (`generate-k8s-manifests`):
+
+The tool output includes `attributionLabels.annotations` applied to all generated Kubernetes resource metadata:
+
+| Type | Key | Value | Purpose |
+|------|-----|-------|---------|
+| Annotation | `com.azure.containerizationassist/version` | Package version (e.g., `1.4.0`) | Version of containerization-assist used |
+
+Organizations can add custom labels via the policy system's `orgStandards.requiredLabels` configuration.
 
 ## Supported Technologies
 
@@ -229,7 +300,8 @@ The following environment variables control server behavior:
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `DOCKER_SOCKET` | Docker socket path | `/var/run/docker.sock` (Linux/Mac)<br>`//./pipe/docker_engine` (Windows) | Yes (for Docker features) |
+| `DOCKER_SOCKET` | Docker socket path | `/var/run/docker.sock` (Linux/Mac)<br>`//./pipe/docker_engine` (Windows) | No  |
+| `DOCKER_HOST` | Docker host URI (`unix://`, `tcp://`, `http://`, `https://`, `npipe://`) | Auto-detected | No |
 | `DOCKER_TIMEOUT` | Docker operation timeout in milliseconds | `60000` (60s) | No |
 | `KUBECONFIG` | Path to Kubernetes config file | `~/.kube/config` | No |
 | `K8S_NAMESPACE` | Default Kubernetes namespace | `default` | No |
@@ -289,52 +361,46 @@ This provides comprehensive out-of-the-box security and quality enforcement.
 
 ### Policy Customization
 
-The policy system supports three priority-ordered search paths for easy customization:
+The policy system supports four priority-ordered search paths for easy customization:
 
 **Priority Order (highest to lowest):**
-1. **Custom directory** via `CUSTOM_POLICY_PATH` environment variable (NPM users)
-2. **`policies.user/` directory** in your repository (source installation users)
-3. **Built-in `policies/`** (baseline policies)
+1. **Custom directory** via `CUSTOM_POLICY_PATH` environment variable (highest priority)
+2. **Project directory** at `<git-root>/.containerization-assist/policy/` (tracked in git)
+3. **Global directory** at `~/.config/containerization-assist/policy/` (XDG-compliant)
+4. **Built-in `policies/`** (shipped with package, lowest priority)
 
-Later policies override earlier policies during merging by package namespace.
+> **Migration Note**: The `policies.user/` directory is deprecated. For project-specific policies, use `.containerization-assist/policy/` at your git root. For user-wide policies, use `~/.config/containerization-assist/policy/`. The old directory still works but will log a deprecation warning.
 
-#### Quick Start: Source Installation (10 seconds)
+#### Quick Start
 
 ```bash
-# Copy example policy to policies.user/
-mkdir -p policies.user
-cp policies.user.examples/allow-all-registries.rego policies.user/
+# Option 1: Global policies (no env var needed)
+mkdir -p ~/.config/containerization-assist/policy
 
-# Restart your MCP client (VS Code, Claude Desktop, etc.)
+# Copy example policy from the npm package
+cp node_modules/containerization-assist-mcp/policies.user.examples/allow-all-registries.rego \
+   ~/.config/containerization-assist/policy/
+
+# Policies are auto-reloaded on the next tool execution — no restart needed
 ```
 
-#### Quick Start: NPM Installation (30 seconds)
+Or set a custom location in `.vscode/mcp.json`:
 
-```bash
-# 1. Create custom policy directory
-mkdir -p ~/.config/containerization-assist/policies
-
-# 2. Copy example policy
-cp node_modules/containerization-assist-mcp/policies.user.examples/allow-all-registries.rego \
-   ~/.config/containerization-assist/policies/
-
-# 3. Configure environment variable in .vscode/mcp.json
+```json
 {
   "servers": {
-    "containerization-assist": {
+    "ca": {
       "env": {
-        "CUSTOM_POLICY_PATH": "${env:HOME}/.config/containerization-assist/policies"
+        "CUSTOM_POLICY_PATH": "/path/to/policies"
       }
     }
   }
 }
-
-# 4. Restart VS Code
 ```
 
 #### Pre-Built Example Policies
 
-The `policies.user.examples/` directory includes three ready-to-use examples:
+The `policies.user.examples/` directory (included in the npm package) provides three ready-to-use examples:
 
 | Example | Purpose | Use Case |
 |---------|---------|----------|
@@ -434,10 +500,10 @@ See [Policy Customization Guide](docs/guides/policy-getting-started.md) and exis
 
 ```bash
 # Validate policy syntax
-opa check policies.user/my-policy.rego
+opa check .containerization-assist/policy/my-policy.rego
 
 # Run policy tests
-opa test policies.user/
+opa test .containerization-assist/policy/
 
 # Test with MCP Inspector
 npx @modelcontextprotocol/inspector containerization-assist-mcp start

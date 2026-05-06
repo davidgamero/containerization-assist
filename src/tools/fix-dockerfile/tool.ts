@@ -9,7 +9,7 @@
  */
 
 import { type Result, Success, TOPICS } from '@/types';
-import type { ToolContext } from '@/mcp/context';
+import type { ToolContext } from '@/core/context';
 import { getToolLogger } from '@/lib/tool-helpers';
 import { LIMITS } from '@/config/constants';
 import {
@@ -27,10 +27,9 @@ import type { z } from 'zod';
 import { readDockerfile } from '@/lib/file-utils';
 import { validateContentAgainstPolicy, type PolicyValidationResult } from '@/lib/policy-helpers';
 import { pluralize } from '@/lib/summary-helpers';
+import { fixDockerfileToolDefinition } from './types';
 
-const name = 'fix-dockerfile';
-const description = 'Analyze Dockerfile for issues and return knowledge-based fix recommendations';
-const version = '2.0.0';
+const { name } = fixDockerfileToolDefinition;
 
 // Score calculation constant
 const SCORE_PENALTY_PER_ISSUE = 10;
@@ -268,9 +267,10 @@ const runPattern = createKnowledgeTool<
       const totalIssues = rules.issueCount;
       const totalFixes = knowledgeMatches.length;
       const environment = input.environment || 'production';
-      const summary = totalIssues > 0
-        ? `✅ Dockerfile validation complete for ${environment} environment. Found ${pluralize(totalIssues, 'issue')} (${securityIssues.length} security, ${performanceIssues.length} performance). ${pluralize(totalFixes, 'fix recommendation')} available. Validation score: ${validationScore}/100 (${validationGrade}).`
-        : `✅ Dockerfile validation passed for ${environment} environment. Score: ${validationScore}/100 (${validationGrade}). No critical issues found.`;
+      const summary =
+        totalIssues > 0
+          ? `✅ Dockerfile validation complete for ${environment} environment. Found ${pluralize(totalIssues, 'issue')} (${securityIssues.length} security, ${performanceIssues.length} performance). ${pluralize(totalFixes, 'fix recommendation')} available. Validation score: ${validationScore}/100 (${validationGrade}).`
+          : `✅ Dockerfile validation passed for ${environment} environment. Score: ${validationScore}/100 (${validationGrade}). No critical issues found.`;
 
       return {
         currentIssues: {
@@ -421,17 +421,10 @@ Dockerfile Fix Planning Summary:
 import { tool } from '@/types/tool';
 
 export default tool({
-  name,
-  description,
-  category: 'docker',
-  version,
-  schema: fixDockerfileSchema,
-  metadata: {
-    knowledgeEnhanced: true,
-  },
+  ...fixDockerfileToolDefinition,
   chainHints: {
     success:
-      'Dockerfile validation and analysis complete (includes built-in best practices + organizational policy validation if configured). Next: Apply recommended fixes, then call build-image to test the Dockerfile.',
+      'Dockerfile validation and analysis complete (includes built-in best practices + organizational policy validation if configured). Next: Apply recommended fixes, then call build-image-context to test the Dockerfile.',
     failure:
       'Dockerfile validation failed. Review validation errors, policy violations (if any), and apply recommended fixes.',
   },

@@ -6,14 +6,16 @@
  */
 
 import { setupToolContext } from '@/lib/tool-context-helpers';
-import type { ToolContext } from '@/mcp/context';
+import type { ToolContext } from '@/core/context';
 
 import { createSecurityScanner } from '@/infra/security/scanner';
 import { Success, Failure, type Result } from '@/types';
 import { getKnowledgeForCategory } from '@/knowledge/index';
 import type { KnowledgeMatch } from '@/knowledge/types';
-import { scanImageSchema, type ScanImageParams } from './schema';
+import { type ScanImageParams } from './schema';
 import { formatVulnerabilities, buildStatusSummary, pluralize } from '@/lib/summary-helpers';
+import { scanImageToolDefinition } from './types';
+import { resolveDockerContext } from '@/infra/docker/context';
 
 interface DockerScanResult {
   vulnerabilities?: Array<{
@@ -39,6 +41,27 @@ interface DockerScanResult {
   };
 }
 
+/**
+ * Actionable fix recommendation that groups related vulnerabilities
+ */
+export interface FixAction {
+  type: 'UPGRADE_PACKAGE';
+  action: string;
+  current: string;
+  recommended: string;
+  package: string;
+  vulnerabilitiesFixed: number;
+  severityCounts: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    negligible: number;
+    unknown: number;
+  };
+  vulnerabilityIds: string[];
+}
+
 export interface ScanImageResult {
   /**
    * Natural language summary for user display.
@@ -47,6 +70,13 @@ export interface ScanImageResult {
    */
   summary?: string;
   success: boolean;
+  scanner: string;
+  /**
+   * The Docker context used for this scan.
+   * Only set when a specific context was requested.
+   */
+  context?: string;
+  recommendedActions?: FixAction[];
   remediationGuidance?: Array<{
     vulnerability: string;
     recommendation: string;
@@ -62,8 +92,118 @@ export interface ScanImageResult {
     unknown: number;
     total: number;
   };
+  vulnerabilityDetails?: Array<{
+    id: string;
+    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NEGLIGIBLE' | 'UNKNOWN';
+    package: string;
+    version: string;
+    description: string;
+    fixedVersion?: string;
+  }>;
   scanTime: string;
   passed: boolean;
+}
+
+/**
+ * Analyze vulnerabilities and generate actionable fix recommendations
+ * Groups vulnerabilities by package for cleaner output
+ */
+function analyzeFixActions(
+  vulnerabilities: Array<{
+    id: string;
+    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NEGLIGIBLE' | 'UNKNOWN';
+    package: string;
+    version: string;
+    fixedVersion?: string;
+  }>,
+): FixAction[] {
+  const fixable = vulnerabilities.filter((v) => v.fixedVersion !== undefined);
+  if (fixable.length === 0) return [];
+
+  const normalizeVersion = (value: string | undefined): string => {
+    if (value === undefined) return 'unknown';
+    return value.trim() === '' ? 'unknown' : value;
+  };
+
+  const byPackageVersion = new Map<string, typeof fixable>();
+  for (const vuln of fixable) {
+    const currentVersion = normalizeVersion(vuln.version);
+    const fixedVersion = normalizeVersion(vuln.fixedVersion);
+    const key = `${vuln.package}::${currentVersion}::${fixedVersion}`;
+    const grouped = byPackageVersion.get(key) || [];
+    grouped.push(vuln);
+    byPackageVersion.set(key, grouped);
+  }
+
+  const actions: FixAction[] = Array.from(byPackageVersion.entries()).map(([, vulns]) => {
+    const severityCounts = {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      negligible: 0,
+      unknown: 0,
+    };
+
+    for (const vuln of vulns) {
+      switch (vuln.severity) {
+        case 'CRITICAL':
+          severityCounts.critical += 1;
+          break;
+        case 'HIGH':
+          severityCounts.high += 1;
+          break;
+        case 'MEDIUM':
+          severityCounts.medium += 1;
+          break;
+        case 'LOW':
+          severityCounts.low += 1;
+          break;
+        case 'NEGLIGIBLE':
+          severityCounts.negligible += 1;
+          break;
+        case 'UNKNOWN':
+          severityCounts.unknown += 1;
+          break;
+      }
+    }
+
+    const vulnerabilityIds = [...new Set(vulns.map((v) => v.id))].slice(0, 5);
+    const packageName = vulns[0]?.package ?? 'unknown';
+    const currentVersion = normalizeVersion(vulns[0]?.version);
+    const fixedVersion = normalizeVersion(vulns[0]?.fixedVersion);
+
+    return {
+      type: 'UPGRADE_PACKAGE',
+      action: `Upgrade ${packageName}`,
+      current: `${packageName}: ${currentVersion}`,
+      recommended: `${packageName}: ${fixedVersion}`,
+      package: packageName,
+      vulnerabilitiesFixed: vulns.length,
+      severityCounts,
+      vulnerabilityIds,
+    };
+  });
+
+  const severityOrder: Array<keyof FixAction['severityCounts']> = [
+    'critical',
+    'high',
+    'medium',
+    'low',
+    'negligible',
+    'unknown',
+  ];
+
+  actions.sort((a, b) => {
+    for (const severity of severityOrder) {
+      if (b.severityCounts[severity] !== a.severityCounts[severity]) {
+        return b.severityCounts[severity] - a.severityCounts[severity];
+      }
+    }
+    return b.vulnerabilitiesFixed - a.vulnerabilitiesFixed;
+  });
+
+  return actions.slice(0, 5);
 }
 
 /**
@@ -82,20 +222,49 @@ async function handleScanImage(
   }
   const { logger, timer } = setupToolContext(context, 'scan-image');
 
-  const { scanner = 'trivy', severity } = params;
+  const {
+    scanner = 'osv',
+    severity,
+    scanType = 'vulnerability',
+    enableAISuggestions = true,
+    context: dockerContext,
+  } = params;
+
+  // Normalize scanType: "all" defaults to "vulnerability" until other scan types are supported
+  const effectiveScanType = scanType === 'all' ? 'vulnerability' : scanType;
+
+  if (effectiveScanType !== 'vulnerability') {
+    return Failure(`Scan type '${scanType}' is not supported`, {
+      message: 'Only vulnerability scans are currently supported',
+      hint: 'Use scanType="vulnerability" for image vulnerability checks',
+      resolution: 'Update scanType to "vulnerability" and retry',
+    });
+  }
 
   // Map severity parameter to threshold
   const finalSeverityThreshold = severity
     ? (severity.toLowerCase() as 'low' | 'medium' | 'high' | 'critical')
     : 'high';
 
+  // Resolve Docker context to endpoint if a specific context is requested
+  let dockerHost: string | undefined;
+  if (dockerContext) {
+    const resolved = await resolveDockerContext(dockerContext, logger);
+    if (!resolved.ok) {
+      return Failure(resolved.error, resolved.guidance);
+    }
+    dockerHost = resolved.value;
+    logger.info({ context: dockerContext }, 'Using Docker context');
+    logger.debug({ context: dockerContext, dockerHost }, 'Resolved Docker context endpoint');
+  }
+
   try {
     logger.info(
-      { scanner, severityThreshold: finalSeverityThreshold },
+      { scanner, severityThreshold: finalSeverityThreshold, scanType: effectiveScanType },
       'Starting image security scan',
     );
 
-    const securityScanner = createSecurityScanner(logger, scanner);
+    const securityScanner = createSecurityScanner(logger, scanner, dockerHost);
 
     const imageId = params.imageId;
 
@@ -106,7 +275,7 @@ async function handleScanImage(
         resolution: 'Add imageId parameter with the Docker image ID or name to scan',
       });
     }
-    logger.info({ imageId, scanner }, 'Scanning image for vulnerabilities');
+    logger.info({ imageId, scanner, scanType: effectiveScanType }, 'Scanning image for vulnerabilities');
 
     // Scan image using security scanner
     const scanResultWrapper = await securityScanner.scanImage(imageId);
@@ -172,7 +341,11 @@ async function handleScanImage(
 
     // Get knowledge-based remediation guidance for vulnerabilities
     let remediationGuidance: ScanImageResult['remediationGuidance'] = [];
-    if (dockerScanResult.vulnerabilities && dockerScanResult.vulnerabilities.length > 0) {
+    if (
+      enableAISuggestions &&
+      dockerScanResult.vulnerabilities &&
+      dockerScanResult.vulnerabilities.length > 0
+    ) {
       try {
         // Create a summary of vulnerabilities for knowledge query
         const vulnSummary = dockerScanResult.vulnerabilities
@@ -218,6 +391,7 @@ async function handleScanImage(
       total: scanResult.totalVulnerabilities,
     });
 
+    const contextLabel = dockerContext ? ` [context: ${dockerContext}]` : '';
     const remediationText =
       remediationGuidance.length > 0
         ? ` ${pluralize(remediationGuidance.length, 'remediation')} available.`
@@ -225,14 +399,33 @@ async function handleScanImage(
 
     const summary = buildStatusSummary(
       passed,
-      `🔒 Security scan passed. ${vulnSummary}.${remediationText}`,
-      `🔒 Security scan failed. ${vulnSummary}.${remediationText}`,
+      `🔒 Security scan passed (${scanner})${contextLabel}. ${vulnSummary}.${remediationText}`,
+      `🔒 Security scan failed (${scanner})${contextLabel}. ${vulnSummary}.${remediationText}`,
     );
 
-    // Prepare the result
+    const vulnerabilityDetails =
+      dockerScanResult.vulnerabilities && dockerScanResult.vulnerabilities.length > 0
+        ? dockerScanResult.vulnerabilities.map((v) => ({
+            id: v.id ?? 'UNKNOWN',
+            severity: v.severity,
+            package: v.package ?? 'unknown',
+            version: v.version ?? 'unknown',
+            description: v.description ?? 'No description available',
+            ...(v.fixedVersion !== undefined && { fixedVersion: v.fixedVersion }),
+          }))
+        : undefined;
+
+    const recommendedActions =
+      vulnerabilityDetails && vulnerabilityDetails.length > 0
+        ? analyzeFixActions(vulnerabilityDetails)
+        : undefined;
+
     const result: ScanImageResult = {
       summary,
       success: true,
+      scanner,
+      ...(dockerContext && { context: dockerContext }),
+      ...(recommendedActions && recommendedActions.length > 0 && { recommendedActions }),
       ...(remediationGuidance.length > 0 && { remediationGuidance }),
       vulnerabilities: {
         critical: scanResult.criticalCount,
@@ -243,6 +436,7 @@ async function handleScanImage(
         unknown: scanResult.unknownCount,
         total: scanResult.totalVulnerabilities,
       },
+      ...(vulnerabilityDetails && { vulnerabilityDetails }),
       scanTime: dockerScanResult.scanTime ?? new Date().toISOString(),
       passed,
     };
@@ -272,7 +466,8 @@ async function handleScanImage(
     return Failure(errorMessage, {
       message: errorMessage,
       hint: 'An unexpected error occurred during the security scan',
-      resolution: 'Verify that the scanner (Trivy) is installed and accessible, the image exists, and you have proper permissions',
+      resolution:
+        'Verify that the scanner is installed and accessible, the image exists, and you have proper permissions',
     });
   }
 }
@@ -285,20 +480,6 @@ export const scanImage = handleScanImage;
 import { tool } from '@/types/tool';
 
 export default tool({
-  name: 'scan-image',
-  description:
-    'Scan Docker images for security vulnerabilities with knowledge-based remediation guidance',
-  category: 'security',
-  version: '2.0.0',
-  schema: scanImageSchema,
-  metadata: {
-    knowledgeEnhanced: true,
-  },
-  chainHints: {
-    success:
-      'Security scan passed! Proceed with push-image to push to a registry, or continue with deployment preparation.',
-    failure:
-      'Security scan found vulnerabilities. Use fix-dockerfile to address security issues in your base images and dependencies.',
-  },
+  ...scanImageToolDefinition,
   handler: handleScanImage,
 });

@@ -1,6 +1,6 @@
 # Containerization Assist - MCP Integration Examples
 
-This directory contains integration patterns for using Container Assist tools in your own MCP server.
+Integration patterns for using Container Assist tools in your own MCP server.
 
 ## Examples
 
@@ -20,7 +20,7 @@ This directory contains integration patterns for using Container Assist tools in
 
 **[mcp-integration-with-telemetry.ts](./mcp-integration-with-telemetry.ts)** - Advanced integration with telemetry hooks:
 - Use `createToolHandler()` for fine-grained control over tool registration
-- **✨ NEW: Full TypeScript type safety** - Strongly-typed params and results in callbacks
+- **Full TypeScript type safety** - Strongly-typed params and results in callbacks
 - Add custom telemetry tracking for tool executions
 - Implement error reporting and monitoring
 - Track performance metrics and success rates
@@ -54,28 +54,27 @@ import { createToolHandler } from 'containerization-assist';
 
 // Using a literal tool name gives you fully-typed callbacks!
 server.tool(
-  'build-image',
-  buildImageTool.description,
-  buildImageTool.inputSchema,
-  createToolHandler(app, 'build-image', {
+  'build-image-context',
+  buildImageContextTool.description,
+  buildImageContextTool.inputSchema,
+  createToolHandler(app, 'build-image-context', {
     onSuccess: (result, toolName, params) => {
       // ✅ result is typed as BuildImageResult
-      console.log(`Built: ${result.imageId}, size: ${result.size} bytes`);
+      console.log(`Build command: ${result.nextAction.buildCommand.command}`);
 
-      // ✅ params is typed as BuildImageInput
+      // ✅ params is typed as BuildImageParams
       console.log(`Image name: ${params.imageName}`);
 
-      // ✅ Full IntelliSense support!
+      // ✅ Full IntelliSense support - use safe aggregates for telemetry
       telemetry.track({
         tool: toolName,
-        imageSize: result.size,
-        buildTime: result.buildTime,
-        tags: result.tags
+        riskLevel: result.securityAnalysis.riskLevel,
+        warningCount: result.securityAnalysis.warnings.length
       });
     },
     onError: (error, toolName, params) => {
       // ✅ params is also typed in error handler
-      console.error(`Failed to build ${params.imageName}`);
+      console.error(`Failed to prepare build for ${params.imageName}`);
     }
   })
 );
@@ -196,7 +195,7 @@ import {
   analyzeRepoTool,           // Repository analysis and framework detection
   generateDockerfileTool,    // AI-powered Dockerfile generation
   fixDockerfileTool,         // Fix and optimize existing Dockerfiles
-  buildImageTool,            // Docker image building with progress
+  buildImageContextTool,     // Docker build context provider (returns command)
   scanImageTool,             // Security vulnerability scanning
   tagImageTool,              // Docker image tagging
   pushImageTool,             // Push images to registry
@@ -214,7 +213,7 @@ Use these string names when defining aliases:
 - `'analyze-repo'` - Repository analysis
 - `'generate-dockerfile'` - Dockerfile generation
 - `'fix-dockerfile'` - Dockerfile fixes
-- `'build-image'` - Docker build
+- `'build-image-context'` - Docker build context provider
 - `'scan-image'` - Security scanning
 - `'tag-image'` - Image tagging
 - `'push-image'` - Registry push
@@ -235,4 +234,3 @@ npx tsc --noEmit docs/examples/*.ts
 ## More Information
 
 - [Main README](../../README.md) - Installation and usage guide
-- [CLAUDE.md](../../CLAUDE.md) - Development guidelines

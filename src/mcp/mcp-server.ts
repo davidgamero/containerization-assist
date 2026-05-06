@@ -13,16 +13,29 @@ import {
   ErrorCode,
   type ServerRequest,
   type ServerNotification,
+  type RequestId,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { extractErrorMessage } from '@/lib/errors';
+import { z } from 'zod';
+import { WORKFLOW_TOOL_NAME } from '@/tools';
+import { buildCreatePolicyPrompt } from '@/prompts/create-policy/prompt';
+import { buildLocalKindDevLoopPrompt } from '@/prompts/kind-loop/prompt';
+import { localKindDevLoopSchema, type LocalKindDevLoopArgs } from '@/prompts/kind-loop/schema';
+import { buildAksRemoteDevLoopPrompt } from '@/prompts/aks-loop/prompt';
+import { aksRemoteDevLoopSchema, type AksRemoteDevLoopArgs } from '@/prompts/aks-loop/schema';
 import { createLogger, type Logger } from '@/lib/logger';
 import type { Tool } from '@/types/tool';
-import { type ExecuteRequest, type ExecuteMetadata, type ChainHintsMode, CHAINHINTSMODE } from '@/app/orchestrator-types';
+import {
+  type ExecuteRequest,
+  type ExecuteMetadata,
+  type ChainHintsMode,
+  CHAINHINTSMODE,
+} from '@/app/orchestrator-types';
 import type { Result, ErrorGuidance } from '@/types';
 import type { ScanImageResult } from '@/tools/scan-image/tool';
 import type { DockerfilePlan } from '@/tools/generate-dockerfile/schema';
-import type { BuildImageResult } from '@/tools/build-image/tool';
+import type { BuildImageResult } from '@/tools/build-image-context/schema';
 import type { RepositoryAnalysis } from '@/tools/analyze-repo/schema';
 import type { VerifyDeploymentResult } from '@/tools/verify-deploy/tool';
 import type { DockerfileFixPlan } from '@/tools/fix-dockerfile/schema';
@@ -58,22 +71,6 @@ const ERROR_FORMAT = {
   RESOLUTION_PREFIX: '🔧',
   DEFAULT_RESOLUTION: 'Check logs for more information',
 } as const;
-
-/**
- * Type definitions for metadata extraction
- */
-interface MetaParams {
-  requestId?: string;
-  invocationId?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Type guard to check if a value is valid metadata params
- */
-function isMetaParams(value: unknown): value is MetaParams {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 /**
  * Server options
@@ -175,6 +172,12 @@ export function createMCPServer<TTool extends Tool>(
   let transportInstance: StdioServerTransport | null = null;
   let isRunning = false;
 
+  const workflowTools: Array<{ name: string; description: string }> = [
+    { name: WORKFLOW_TOOL_NAME.CREATE_POLICY, description: 'Create a custom OPA Rego policy for containerization-assist' },
+    { name: WORKFLOW_TOOL_NAME.KIND_LOOP, description: 'Drive a full local Kind cluster development iteration loop' },
+    { name: WORKFLOW_TOOL_NAME.AKS_LOOP, description: 'Drive a full AKS remote cluster deployment iteration loop' },
+  ];
+
   registerToolsWithServer({
     outputFormat,
     chainHintsMode,
@@ -200,7 +203,7 @@ export function createMCPServer<TTool extends Tool>(
           text: JSON.stringify(
             {
               running: isRunning,
-              tools: tools.length,
+              tools: tools.length + workflowTools.length,
               transport: transportType,
               timestamp: new Date().toISOString(),
             },
@@ -209,6 +212,40 @@ export function createMCPServer<TTool extends Tool>(
           ),
         },
       ],
+    }),
+  );
+
+  // --- Workflow tools ---
+  // Registered as tools (not prompts) so the guidance text appears in
+  // collapsed tool output rather than flooding the chat window.
+
+  // create-containerization-policy
+  (server as McpServer & { tool: any }).tool(
+    WORKFLOW_TOOL_NAME.CREATE_POLICY,
+    'Create a custom OPA Rego policy for containerization-assist. Returns a step-by-step plan and guidance for authoring a policy. Call this tool, then walk the user through the returned plan — each step has a recommended default the user can accept or override.',
+    z.object({}).shape,
+    async () => ({
+      content: [{ type: 'text' as const, text: buildCreatePolicyPrompt() }],
+    }),
+  );
+
+  // kind-loop
+  (server as McpServer & { tool: any }).tool(
+    WORKFLOW_TOOL_NAME.KIND_LOOP,
+    'Drive a full local Kind cluster development iteration loop: analyze, build, scan, deploy, and verify using containerization-assist tools. Returns a step-by-step workflow plan.',
+    localKindDevLoopSchema,
+    async (args: LocalKindDevLoopArgs) => ({
+      content: [{ type: 'text' as const, text: buildLocalKindDevLoopPrompt(args) }],
+    }),
+  );
+
+  // aks-loop
+  (server as McpServer & { tool: any }).tool(
+    WORKFLOW_TOOL_NAME.AKS_LOOP,
+    'Drive a full AKS remote cluster deployment iteration loop: analyze, build, scan, push to ACR, deploy, and verify using containerization-assist tools. Returns a step-by-step workflow plan.',
+    aksRemoteDevLoopSchema,
+    async (args: AksRemoteDevLoopArgs) => ({
+      content: [{ type: 'text' as const, text: buildAksRemoteDevLoopPrompt(args) }],
     }),
   );
 
@@ -230,7 +267,7 @@ export function createMCPServer<TTool extends Tool>(
         {
           version: serverOptions.version,
           transport: transportType,
-          toolCount: tools.length,
+          toolCount: tools.length + workflowTools.length,
         },
         'MCP server started',
       );
@@ -252,11 +289,68 @@ export function createMCPServer<TTool extends Tool>(
     },
 
     getTools(): Array<{ name: string; description: string }> {
-      return tools.map((t) => ({
+      const registeredTools: Array<{ name: string; description: string }> = tools.map((t) => ({
         name: t.name,
         description: t.description,
       }));
+
+      // Include workflow tools that are registered directly on the McpServer
+      registeredTools.push(...workflowTools);
+
+      return registeredTools;
     },
+  };
+}
+
+/**
+ * Create tool handler function with proper typing to avoid deep type instantiation
+ */
+function getHandler(
+  toolName: string,
+  transport: string,
+  outputFormat: OutputFormat,
+  chainHintsMode: ChainHintsMode,
+  execute: ToolExecutor,
+) {
+  return async (
+    rawParams: Record<string, unknown> | undefined,
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  ) => {
+    const params = rawParams ?? {};
+
+    try {
+      const { sanitizedParams, metadata } = prepareExecutionPayload(
+        toolName,
+        params,
+        transport,
+        extra,
+      );
+
+      const result = await execute({
+        toolName,
+        params: sanitizedParams,
+        metadata,
+      });
+
+      if (!result.ok) {
+        // Format error with guidance if available
+        const errorMessage = formatErrorWithGuidance(result.error, result.guidance);
+        throw new McpError(ErrorCode.InternalError, errorMessage);
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: formatOutput(result.value, outputFormat, chainHintsMode),
+          },
+        ],
+      };
+    } catch (error) {
+      throw error instanceof McpError
+        ? error
+        : new McpError(ErrorCode.InternalError, extractErrorMessage(error));
+    }
   };
 }
 
@@ -267,74 +361,47 @@ export function createMCPServer<TTool extends Tool>(
  * @param options - Registration options including server, tools, and executor
  */
 export function registerToolsWithServer<TTool extends Tool>(options: RegisterOptions<TTool>): void {
-  const { server, tools, transport, execute, outputFormat, chainHintsMode = CHAINHINTSMODE.ENABLED } = options;
+  const {
+    server,
+    tools,
+    transport,
+    execute,
+    outputFormat,
+    chainHintsMode = CHAINHINTSMODE.ENABLED,
+  } = options;
 
   for (const tool of tools) {
-    server.tool(
+    const handler = getHandler(tool.name, transport, outputFormat, chainHintsMode, execute);
+
+    // Type assertion to avoid deep type instantiation issues with MCP SDK
+    // The MCP SDK's complex generic constraints on tool() cause TS2589 errors
+    // Runtime safety is preserved by Zod schema validation
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (server as McpServer & { tool: any }).tool(
       tool.name,
       tool.description,
       tool.inputSchema,
-      async (rawParams: Record<string, unknown> | undefined, extra) => {
-        const params = rawParams ?? {};
-
-        try {
-          const { sanitizedParams, metadata } = prepareExecutionPayload(
-            tool.name,
-            params,
-            transport,
-            extra,
-          );
-
-          const result = await execute({
-            toolName: tool.name,
-            params: sanitizedParams,
-            metadata,
-          });
-
-          if (!result.ok) {
-            // Format error with guidance if available
-            const errorMessage = formatErrorWithGuidance(result.error, result.guidance);
-            throw new McpError(ErrorCode.InternalError, errorMessage);
-          }
-
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: formatOutput(result.value, outputFormat, chainHintsMode),
-              },
-            ],
-          };
-        } catch (error) {
-          throw error instanceof McpError
-            ? error
-            : new McpError(ErrorCode.InternalError, extractErrorMessage(error));
-        }
-      },
+      handler,
     );
   }
 }
 
 /**
- * Creates logger context from tool name, transport, and metadata
+ * Creates logger context from tool name, transport, and MCP request metadata
  * @param toolName - Name of the tool being executed
  * @param transport - Transport type (e.g., 'stdio')
- * @param meta - Optional metadata parameters
+ * @param requestId - JSON-RPC request ID from MCP SDK
  * @returns Logger context object
  */
 function createLoggerContext(
   toolName: string,
   transport: string,
-  meta?: MetaParams,
+  requestId?: RequestId,
 ): Record<string, unknown> {
   return {
     transport,
     tool: toolName,
-    ...(meta?.requestId && typeof meta.requestId === 'string' && { requestId: meta.requestId }),
-    ...(meta?.invocationId &&
-      typeof meta.invocationId === 'string' && {
-      invocationId: meta.invocationId,
-    }),
+    ...(requestId !== undefined && { requestId: String(requestId) }),
   };
 }
 
@@ -353,24 +420,20 @@ function createNotificationAdapter(
 }
 
 /**
- * Creates execution metadata from parameters and request context
+ * Creates execution metadata from MCP request context
  * @param toolName - Name of the tool being executed
- * @param params - Tool parameters
  * @param transport - Transport type
  * @param extra - Request handler extras from MCP SDK
  * @returns ExecuteMetadata object
  */
 function createExecuteMetadata(
   toolName: string,
-  params: Record<string, unknown>,
   transport: string,
   extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
 ): ExecuteMetadata {
-  const meta = extractMeta(params);
-
   return {
-    progress: params,
-    loggerContext: createLoggerContext(toolName, transport, meta),
+    progress: extra._meta?.progressToken,
+    loggerContext: createLoggerContext(toolName, transport, extra.requestId),
     ...(extra.sendNotification && {
       sendNotification: createNotificationAdapter(extra.sendNotification),
     }),
@@ -396,18 +459,8 @@ function prepareExecutionPayload(
 } {
   return {
     sanitizedParams: sanitizeParams(params),
-    metadata: createExecuteMetadata(toolName, params, transport, extra),
+    metadata: createExecuteMetadata(toolName, transport, extra),
   };
-}
-
-/**
- * Extracts metadata from tool parameters
- * @param params - Raw tool parameters
- * @returns Metadata object or undefined if not present/invalid
- */
-function extractMeta(params: Record<string, unknown>): MetaParams | undefined {
-  const meta = params._meta;
-  return isMetaParams(meta) ? meta : undefined;
 }
 
 /**
@@ -500,12 +553,15 @@ export function formatOutput(
  * - scan-image: Security scan results with severity breakdown
  * - generate-dockerfile: Planning with base images and recommendations
  * - deploy: Deployment status with endpoints and conditions
- * - build-image: Build results with metrics
+ * - build-image-context: Build results with metrics
  * - analyze-repo: Repository analysis with module detection
  *
  * Falls back to summary field or JSON for other tool types.
  */
-function formatAsNaturalLanguage(output: unknown, chainHintsMode: ChainHintsMode = CHAINHINTSMODE.ENABLED): string {
+function formatAsNaturalLanguage(
+  output: unknown,
+  chainHintsMode: ChainHintsMode = CHAINHINTSMODE.ENABLED,
+): string {
   if (!output || typeof output !== 'object') {
     return String(output);
   }
@@ -588,9 +644,8 @@ function isDockerfilePlan(output: object): output is DockerfilePlan {
   );
 }
 
-
 function isBuildImageResult(output: object): output is BuildImageResult {
-  return 'imageId' in output && 'buildTime' in output;
+  return 'buildConfig' in output && 'nextAction' in output && 'dockerfileAnalysis' in output;
 }
 
 function isAnalyzeRepoResult(output: object): output is RepositoryAnalysis {
